@@ -463,109 +463,105 @@
       const config = store?.getState()?.firebaseConfig || DEFAULT_FIREBASE_CONFIG;
       const apiKey = config.apiKey;
       const projectId = config.projectId || "olcme-uygulama";
+      if (!apiKey) return false;
 
       try {
-        // REST runQuery API ile olcme-uygulama veritabanından çek
         const fetchCollection = async (coll) => {
-          const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/olcme-uygulama/documents:runQuery?key=${apiKey}`;
-          const res = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ structuredQuery: { from: [{ collectionId: coll }] } })
-          });
-          if (!res.ok) return [];
-          const data = await res.json();
-          return (data || [])
-            .filter((item) => item.document && item.document.fields)
-            .map((item) => {
-              const id = item.document.name.split("/").pop();
-              const fields = this.firestoreFieldsToJs(item.document.fields);
-              return { id, ...fields };
+          try {
+            const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/olcme-uygulama/documents:runQuery?key=${apiKey}`;
+            const res = await fetch(url, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ structuredQuery: { from: [{ collectionId: coll }] } })
             });
+            if (!res.ok) return [];
+            const data = await res.json();
+            return (data || [])
+              .filter((item) => item.document && item.document.fields)
+              .map((item) => {
+                const id = item.document.name.split("/").pop();
+                const fields = this.firestoreFieldsToJs(item.document.fields);
+                return { id, ...fields };
+              });
+          } catch (e) {
+            return [];
+          }
         };
 
-        // 1. Öğrencileri çek
+        let hasChange = false;
+
+        // 1. Öğrencileri çek ve doğrula
         const students = await fetchCollection("ogrenciler");
-        if (students.length > 0) {
-          store.state.students = students;
-          store.saveToStorage(APP_CONFIG.storageKeys.STUDENTS, students);
+        if (students && students.length > 0) {
+          const validStudents = students
+            .filter((st) => st && st.adSoyad)
+            .map((st) => ({
+              id: st.id || generateId("ogr"),
+              adSoyad: st.adSoyad || "Öğrenci",
+              sinif: st.sinif || "8",
+              sube: st.sube || "8/A",
+              numara: st.numara || "100",
+              veliAdSoyad: st.veliAdSoyad || "-",
+              veliTelefon: st.veliTelefon || "-",
+              olusturmaTarihi: st.olusturmaTarihi || new Date().toISOString().split("T")[0]
+            }));
+
+          if (validStudents.length > 0 && JSON.stringify(validStudents) !== JSON.stringify(store.state.students)) {
+            store.state.students = validStudents;
+            store.saveToStorage(APP_CONFIG.storageKeys.STUDENTS, validStudents);
+            hasChange = true;
+          }
         }
 
-        // 2. Sınavları çek
+        // 2. Sınavları çek ve doğrula
         const exams = await fetchCollection("sinavlar");
-        if (exams.length > 0) {
-          store.state.exams = exams;
-          store.saveToStorage(APP_CONFIG.storageKeys.EXAMS, exams);
+        if (exams && exams.length > 0) {
+          const validExams = exams
+            .filter((ex) => ex && (ex.sinavAdi || ex.ogrenciId))
+            .map((ex) => ({
+              id: ex.id || generateId("snv"),
+              ogrenciId: ex.ogrenciId || "",
+              kurumId: ex.kurumId || "kurum_default",
+              sinavAdi: ex.sinavAdi || "Deneme Sınavı",
+              tarih: ex.tarih || new Date().toISOString().split("T")[0],
+              tur: ex.tur || "kazanimli",
+              toplamSoru: ex.toplamSoru || 90,
+              toplamNet: ex.toplamNet || 0,
+              puan: ex.puan || "-",
+              dersSonuclari: ex.dersSonuclari || []
+            }));
+
+          if (validExams.length > 0 && JSON.stringify(validExams) !== JSON.stringify(store.state.exams)) {
+            store.state.exams = validExams;
+            store.saveToStorage(APP_CONFIG.storageKeys.EXAMS, validExams);
+            hasChange = true;
+          }
         }
 
         // 3. Raporları çek
         const reports = await fetchCollection("raporlar");
-        if (reports.length > 0) {
-          store.state.reports = reports;
-          store.saveToStorage(APP_CONFIG.storageKeys.REPORTS, reports);
+        if (reports && reports.length > 0) {
+          if (JSON.stringify(reports) !== JSON.stringify(store.state.reports)) {
+            store.state.reports = reports;
+            store.saveToStorage(APP_CONFIG.storageKeys.REPORTS, reports);
+            hasChange = true;
+          }
         }
 
         // 4. Kurum bilgilerini çek
         const kurumlar = await fetchCollection("kurumlar");
-        if (kurumlar.length > 0) {
-          store.state.institution = { ...store.state.institution, ...kurumlar[0] };
-          store.saveToStorage(APP_CONFIG.storageKeys.INSTITUTION, store.state.institution);
+        if (kurumlar && kurumlar.length > 0) {
+          const kurum = kurumlar[0];
+          if (kurum && kurum.ad && JSON.stringify(kurum) !== JSON.stringify(store.state.institution)) {
+            store.state.institution = { ...store.state.institution, ...kurum };
+            store.saveToStorage(APP_CONFIG.storageKeys.INSTITUTION, store.state.institution);
+            hasChange = true;
+          }
         }
 
-        store.notify("FIREBASE_SYNCED", null);
-        return true;
+        return hasChange;
       } catch (err) {
-        console.warn("[Firebase REST] Senkronizasyon hatası:", err);
         return false;
-      }
-    }
-
-    static listenRealtime(store, callback) {
-      if (!this.isInitialized || !this.db) return;
-      try {
-        // 1. Öğrenciler canlı dinleme
-        this.db.collection("ogrenciler").onSnapshot((snapshot) => {
-          if (snapshot && !snapshot.empty) {
-            const list = [];
-            snapshot.forEach((doc) => list.push({ id: doc.id, ...doc.data() }));
-            store.state.students = list;
-            store.saveToStorage(APP_CONFIG.storageKeys.STUDENTS, list);
-            if (callback) callback();
-          }
-        }, (err) => console.warn("[Firebase] Öğrenci dinleme uyarısı:", err));
-
-        // 2. Sınavlar canlı dinleme
-        this.db.collection("sinavlar").onSnapshot((snapshot) => {
-          if (snapshot && !snapshot.empty) {
-            const list = [];
-            snapshot.forEach((doc) => list.push({ id: doc.id, ...doc.data() }));
-            store.state.exams = list;
-            store.saveToStorage(APP_CONFIG.storageKeys.EXAMS, list);
-            if (callback) callback();
-          }
-        }, (err) => console.warn("[Firebase] Sınav dinleme uyarısı:", err));
-
-        // 3. Raporlar canlı dinleme
-        this.db.collection("raporlar").onSnapshot((snapshot) => {
-          if (snapshot && !snapshot.empty) {
-            const list = [];
-            snapshot.forEach((doc) => list.push({ id: doc.id, ...doc.data() }));
-            store.state.reports = list;
-            store.saveToStorage(APP_CONFIG.storageKeys.REPORTS, list);
-            if (callback) callback();
-          }
-        }, (err) => console.warn("[Firebase] Rapor dinleme uyarısı:", err));
-
-        // 4. Kurum bilgileri canlı dinleme
-        this.db.collection("kurumlar").doc("kurum_default").onSnapshot((doc) => {
-          if (doc && doc.exists) {
-            store.state.institution = { ...store.state.institution, ...doc.data() };
-            store.saveToStorage(APP_CONFIG.storageKeys.INSTITUTION, store.state.institution);
-            if (callback) callback();
-          }
-        }, (err) => console.warn("[Firebase] Kurum dinleme uyarısı:", err));
-      } catch (e) {
-        console.warn("[Firebase] Realtime listener hatası:", e);
       }
     }
 
@@ -2760,20 +2756,24 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       return `<tr><td colspan="6" class="text-center py-5"><div class="empty-state"><h3>Öğrenci Bulunamadı</h3><button class="btn btn-primary btn-sm mt-3" onclick="window.app.openStudentModal()">Yeni Öğrenci Ekle</button></div></td></tr>`;
     }
     return students.map((s) => {
-      const studentExams = exams.filter((e) => e.ogrenciId === s.id);
-      const initials = s.adSoyad.split(" ").map((n) => n[0]).join("").substring(0, 2).toUpperCase();
+      if (!s) return "";
+      const studentExams = (exams || []).filter((e) => e && e.ogrenciId === s.id);
+      const name = s.adSoyad || "İsimsiz Öğrenci";
+      const initials = (name.split(" ").filter(Boolean).map((n) => n[0]).join("") || "ÖĞ").substring(0, 2).toUpperCase();
+      const sinifStr = s.sinif || "8";
+      const subeStr = s.sube || "8/A";
       return `
-        <tr class="student-row" data-id="${s.id}">
+        <tr class="student-row" data-id="${s.id || ''}">
           <td>
             <div class="user-avatar-group">
               <div class="user-avatar-initials">${initials}</div>
-              <div><div class="font-bold text-dark cursor-pointer" onclick="window.app.openStudentProfile('${s.id}')">${s.adSoyad}</div><div style="font-size: 12px; color: var(--text-muted);">${formatDate(s.olusturmaTarihi)}</div></div>
+              <div><div class="font-bold text-dark cursor-pointer" onclick="window.app.openStudentProfile('${s.id}')">${escapeHtml(name)}</div><div style="font-size: 12px; color: var(--text-muted);">${formatDate(s.olusturmaTarihi)}</div></div>
             </div>
           </td>
-          <td><span class="badge badge-secondary">${s.sinif}. Sınıf / ${s.sube}</span></td>
+          <td><span class="badge badge-secondary">${sinifStr}. Sınıf / ${subeStr}</span></td>
           <td><strong>#${s.numara || "-"}</strong></td>
           <td><span class="badge ${studentExams.length > 0 ? "badge-primary" : "badge-light"}">${studentExams.length} Sınav</span></td>
-          <td><div>${s.veliAdSoyad || "-"}</div><div style="font-size: 11px; color: var(--text-muted);">${s.veliTelefon || "-"}</div></td>
+          <td><div>${escapeHtml(s.veliAdSoyad || "-")}</div><div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(s.veliTelefon || "-")}</div></td>
           <td style="text-align: right;">
             <div class="btn-group">
               <button class="btn btn-sm btn-outline" onclick="window.app.openStudentProfile('${s.id}')">Profil</button>
@@ -2813,7 +2813,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           <div class="filter-select-wrap">
             <select id="exam-student-filter" class="form-control" onchange="window.app.filterExams()">
               <option value="all">Tüm Öğrenciler</option>
-              ${state.students.map((s) => `<option value="${s.id}">${s.adSoyad} (${s.sube})</option>`).join("")}
+              ${(state.students || []).map((s) => `<option value="${s.id}">${escapeHtml(s.adSoyad || 'Öğrenci')} (${escapeHtml(s.sube || '8/A')})</option>`).join("")}
             </select>
           </div>
         </div>
@@ -2854,13 +2854,16 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       return `<tr><td colspan="7" class="text-center py-5"><div class="empty-state"><h3>Sınav Kaydı Yok</h3><button class="btn btn-primary btn-sm mt-3" onclick="window.app.openUploadPdfModal()">PDF Sınav Belgesi Yükle</button></div></td></tr>`;
     }
     return exams.map((exam) => {
-      const student = students.find((s) => s.id === exam.ogrenciId);
+      if (!exam) return "";
+      const student = (students || []).find((s) => s && s.id === exam.ogrenciId);
       const isSelected = selectedIds.includes(exam.id);
+      const sName = student ? (student.adSoyad || "Öğrenci") : (exam.ogrenciAdSoyad || "Bilinmeyen");
+      const sClass = student ? `${student.sinif || 8}. Sınıf / ${student.sube || '8/A'}` : "";
       return `
         <tr class="exam-row ${isSelected ? "row-selected" : ""}">
           <td style="text-align: center;"><input type="checkbox" class="exam-checkbox" value="${exam.id}" ${isSelected ? "checked" : ""} onchange="window.app.toggleExamCheckbox('${exam.id}')" /></td>
-          <td><div class="font-bold text-dark cursor-pointer" onclick="window.app.viewExamDetail('${exam.id}')">${exam.sinavAdi}</div><div style="font-size: 11px; color: var(--text-muted);">${(exam.dersSonuclari || []).length} Ders • LGS: <strong>${exam.puan || "-"}</strong></div></td>
-          <td><strong>${student ? student.adSoyad : "Bilinmeyen"}</strong><div style="font-size: 12px; color: var(--text-muted);">${student ? `${student.sinif}. Sınıf / ${student.sube}` : ""}</div></td>
+          <td><div class="font-bold text-dark cursor-pointer" onclick="window.app.viewExamDetail('${exam.id}')">${escapeHtml(exam.sinavAdi || "Sınav")}</div><div style="font-size: 11px; color: var(--text-muted);">${(exam.dersSonuclari || []).length} Ders • LGS: <strong>${exam.puan || "-"}</strong></div></td>
+          <td><strong>${escapeHtml(sName)}</strong><div style="font-size: 12px; color: var(--text-muted);">${escapeHtml(sClass)}</div></td>
           <td>${formatDate(exam.tarih)}</td>
           <td><span class="badge ${exam.tur === "kazanimli" ? "badge-success" : "badge-secondary"}">${exam.tur === "kazanimli" ? "🎯 Kazanımlı" : "📊 Kazanımsız"}</span></td>
           <td><strong class="text-primary">${exam.toplamNet || "-"} Net</strong></td>
@@ -3262,17 +3265,18 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       FirebaseService.syncAllFromFirestore(store).then((synced) => {
         if (synced) this.renderCurrentView();
       });
-      FirebaseService.listenRealtime(store, () => {
-        this.renderCurrentView();
-      });
-      // Arka planda 10 saniyede bir diğer cihazlardaki yeni verileri çek
+
+      // Arka planda 15 saniyede bir diğer cihazlardaki yeni verileri sessizce çek
       setInterval(() => {
-        FirebaseService.syncAllFromFirestore(store).then((synced) => {
-          if (synced && !["aiConfig", "firebaseConfig", "settings"].includes(store.getState().currentTab)) {
-            this.renderCurrentView();
-          }
-        });
-      }, 10000);
+        const isModalOpen = !!document.querySelector(".modal-backdrop");
+        if (!isModalOpen && !this.isBatchProcessing && !this.isPdfParsing && !this.isSingleAiParsing) {
+          FirebaseService.syncAllFromFirestore(store).then((synced) => {
+            if (synced && !["aiConfig", "firebaseConfig", "settings"].includes(store.getState().currentTab)) {
+              this.renderCurrentView();
+            }
+          });
+        }
+      }, 15000);
     }
 
     updateAnalysisProgress(info) {

@@ -457,6 +457,55 @@
       }
     }
 
+    static listenRealtime(store, callback) {
+      if (!this.isInitialized || !this.db) return;
+      try {
+        // 1. Öğrenciler canlı dinleme
+        this.db.collection("ogrenciler").onSnapshot((snapshot) => {
+          if (snapshot && !snapshot.empty) {
+            const list = [];
+            snapshot.forEach((doc) => list.push({ id: doc.id, ...doc.data() }));
+            store.state.students = list;
+            store.saveToStorage(APP_CONFIG.storageKeys.STUDENTS, list);
+            if (callback) callback();
+          }
+        }, (err) => console.warn("[Firebase] Öğrenci dinleme uyarısı:", err));
+
+        // 2. Sınavlar canlı dinleme
+        this.db.collection("sinavlar").onSnapshot((snapshot) => {
+          if (snapshot && !snapshot.empty) {
+            const list = [];
+            snapshot.forEach((doc) => list.push({ id: doc.id, ...doc.data() }));
+            store.state.exams = list;
+            store.saveToStorage(APP_CONFIG.storageKeys.EXAMS, list);
+            if (callback) callback();
+          }
+        }, (err) => console.warn("[Firebase] Sınav dinleme uyarısı:", err));
+
+        // 3. Raporlar canlı dinleme
+        this.db.collection("raporlar").onSnapshot((snapshot) => {
+          if (snapshot && !snapshot.empty) {
+            const list = [];
+            snapshot.forEach((doc) => list.push({ id: doc.id, ...doc.data() }));
+            store.state.reports = list;
+            store.saveToStorage(APP_CONFIG.storageKeys.REPORTS, list);
+            if (callback) callback();
+          }
+        }, (err) => console.warn("[Firebase] Rapor dinleme uyarısı:", err));
+
+        // 4. Kurum bilgileri canlı dinleme
+        this.db.collection("kurumlar").doc("kurum_default").onSnapshot((doc) => {
+          if (doc && doc.exists) {
+            store.state.institution = { ...store.state.institution, ...doc.data() };
+            store.saveToStorage(APP_CONFIG.storageKeys.INSTITUTION, store.state.institution);
+            if (callback) callback();
+          }
+        }, (err) => console.warn("[Firebase] Kurum dinleme uyarısı:", err));
+      } catch (e) {
+        console.warn("[Firebase] Realtime listener hatası:", e);
+      }
+    }
+
     static async uploadLogo(file, kurumId = "kurum_default") {
       if (!file) throw new Error("Dosya seçilmedi");
       if (this.isInitialized && this.storage) {
@@ -3124,6 +3173,16 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       store.subscribe((state, event, data) => this.handleStateUpdate(state, event, data));
       this.renderCurrentView();
       this.updateSidebarActiveState();
+
+      // OTOMATİK BULUT SENKRONİZASYONU (Farklı PC / Cihazlar için)
+      if (FirebaseService.isInitialized) {
+        FirebaseService.syncAllFromFirestore(store).then((synced) => {
+          if (synced) this.renderCurrentView();
+        });
+        FirebaseService.listenRealtime(store, () => {
+          this.renderCurrentView();
+        });
+      }
     }
 
     updateAnalysisProgress(info) {

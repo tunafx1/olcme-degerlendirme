@@ -144,110 +144,9 @@
     simulationMode: false
   };
 
-  const MOCK_STUDENTS = [
-    {
-      id: "ogr_bora",
-      adSoyad: "BORA ATEŞ ZAFER",
-      sinif: "8",
-      sube: "8/A",
-      numara: "410",
-      veliAdSoyad: "Zafer Ailesi",
-      veliTelefon: "+90 532 999 88 77",
-      olusturmaTarihi: "2026-05-15"
-    }
-  ];
-
-  const MOCK_EXAMS = [
-    {
-      id: "snv_bora_1",
-      ogrenciId: "ogr_bora",
-      kurumId: "kurum_default",
-      sinavAdi: "8. Sınıf Gelişim Takip-6 (Workwin 2025-26)",
-      tarih: "2026-05-15",
-      tur: "kazanimli",
-      toplamSoru: 90,
-      toplamNet: 85.01,
-      puan: 481.988,
-      dersSonuclari: [
-        {
-          ders: "Türkçe",
-          dogru: 19,
-          yanlis: 1,
-          bos: 0,
-          net: 18.67,
-          konular: [
-            { kazanimAdi: "Bağlamdan yararlanarak bilmediği kelime ve kelime gruplarının anlamını tahmin eder.", durum: "yanlis" },
-            { kazanimAdi: "Kelimeleri anlamlarına uygun kullanır.", durum: "dogru" },
-            { kazanimAdi: "Noktalama işaretlerine dikkat ederek sesli ve sessiz okur.", durum: "dogru" },
-            { kazanimAdi: "Metinle ilgili soruları cevaplar.", durum: "dogru" },
-            { kazanimAdi: "Cümlenin ögelerini ayırt eder.", durum: "dogru" }
-          ]
-        },
-        {
-          ders: "T.C. İnkılap Tarihi ve Atatürkçülük",
-          dogru: 10,
-          yanlis: 0,
-          bos: 0,
-          net: 10.0,
-          konular: [
-            { kazanimAdi: "Toplumsal alanda yapılan inkılapları ve meydana gelen gelişmeleri kavrar.", durum: "dogru" },
-            { kazanimAdi: "Atatürk ilke ve inkılaplarını oluşturan temel esasları kavrar.", durum: "dogru" }
-          ]
-        },
-        {
-          ders: "Din Kültürü ve Ahlak Bilgisi",
-          dogru: 9,
-          yanlis: 1,
-          bos: 0,
-          net: 8.67,
-          konular: [
-            { kazanimAdi: "Zekât ve sadaka ibadetini ayet ve hadislerle açıklar.", durum: "yanlis" },
-            { kazanimAdi: "Kader ve kaza inancını ayet ve hadislerle açıklar.", durum: "dogru" },
-            { kazanimAdi: "İslam dininin temel gayelerini analiz eder.", durum: "dogru" }
-          ]
-        },
-        {
-          ders: "Yabancı Dil (İngilizce)",
-          dogru: 10,
-          yanlis: 0,
-          bos: 0,
-          net: 10.0,
-          konular: [
-            { kazanimAdi: "In The Kitchen — Understanding process and recipes.", durum: "dogru" },
-            { kazanimAdi: "The Internet — Identifying main ideas about internet habits.", durum: "dogru" }
-          ]
-        },
-        {
-          ders: "Matematik",
-          dogru: 20,
-          yanlis: 0,
-          bos: 0,
-          net: 20.0,
-          konular: [
-            { kazanimAdi: "Çarpanlar ve Katlar — EBOB ve EKOK problemleri", durum: "dogru" },
-            { kazanimAdi: "Kareköklü İfadelerde işlemler", durum: "dogru" },
-            { kazanimAdi: "Cebirsel İfadeler ve Özdeşlikler", durum: "dogru" },
-            { kazanimAdi: "Doğrusal Denklemler ve Eğim Grafiği", durum: "dogru" },
-            { kazanimAdi: "Üçgenler ve Pisagor Bağıntısı", durum: "dogru" }
-          ]
-        },
-        {
-          ders: "Fen Bilimleri",
-          dogru: 18,
-          yanlis: 1,
-          bos: 1,
-          net: 17.67,
-          konular: [
-            { kazanimAdi: "Sıvı basıncını etkileyen değişkenleri tahmin eder ve tahminlerini test eder.", durum: "yanlis" },
-            { kazanimAdi: "Periyodik sistemde, grup ve periyotların nasıl oluşturulduğunu açıklar.", durum: "bos" },
-            { kazanimAdi: "Mevsimlerin Oluşumu ve DNA Genetik Kod", durum: "dogru" },
-            { kazanimAdi: "Kimyasal Tepkimeler ve Maddenin Isı ile Etkileşimi", durum: "dogru" }
-          ]
-        }
-      ]
-    }
-  ];
-
+  // Boş başlangıç verileri — tüm gerçek veriler Firestore'dan gelir
+  const MOCK_STUDENTS = [];
+  const MOCK_EXAMS = [];
   const MOCK_REPORTS = [];
 
   // ==========================================
@@ -459,6 +358,11 @@
       }
     }
 
+    /**
+     * Firestore'dan tüm koleksiyonları çeker ve yerel state ile senkronize eder.
+     * KRİTİK: Boş koleksiyon (0 döküman) = Firestore gerçeği. Yerel veriyi de sıfırla.
+     * Network hatası = null döner, yerel veriye dokunma.
+     */
     static async syncAllFromFirestore(store) {
       const config = store?.getState()?.firebaseConfig || DEFAULT_FIREBASE_CONFIG;
       const apiKey = config.apiKey;
@@ -466,6 +370,11 @@
       if (!apiKey) return false;
 
       try {
+        /**
+         * Koleksiyonu Firestore'dan çeker.
+         * Başarılı ama boş koleksiyon → [] (array) döner
+         * Network / izin hatası → null döner (yerel veriye dokunma)
+         */
         const fetchCollection = async (coll) => {
           try {
             const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/olcme-uygulama/documents:runQuery?key=${apiKey}`;
@@ -474,85 +383,65 @@
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ structuredQuery: { from: [{ collectionId: coll }] } })
             });
-            if (!res.ok) return [];
+            if (!res.ok) return null; // Network/izin hatası → yerel veriye dokunma
             const data = await res.json();
-            return (data || [])
+            // Firestore boş koleksiyon için [{readTime: "..."}] gibi document'sız yanıt döner
+            const docs = (data || [])
               .filter((item) => item.document && item.document.fields)
               .map((item) => {
                 const id = item.document.name.split("/").pop();
                 const fields = this.firestoreFieldsToJs(item.document.fields);
                 return { id, ...fields };
               });
+            return docs; // Başarılı → [] veya [{...}, ...]
           } catch (e) {
-            return [];
+            return null; // Network hatası → yerel veriye dokunma
           }
         };
 
         let hasChange = false;
 
-        // 1. Öğrencileri çek ve doğrula
+        // 1. Öğrenciler — Firestore kaynağını TEK GERÇEK olarak kabul et
         const students = await fetchCollection("ogrenciler");
-        if (students && students.length > 0) {
-          const validStudents = students
-            .filter((st) => st && st.adSoyad)
-            .map((st) => ({
-              id: st.id || generateId("ogr"),
-              adSoyad: st.adSoyad || "Öğrenci",
-              sinif: st.sinif || "8",
-              sube: st.sube || "8/A",
-              numara: st.numara || "100",
-              veliAdSoyad: st.veliAdSoyad || "-",
-              veliTelefon: st.veliTelefon || "-",
-              olusturmaTarihi: st.olusturmaTarihi || new Date().toISOString().split("T")[0]
-            }));
-
-          if (validStudents.length > 0 && JSON.stringify(validStudents) !== JSON.stringify(store.state.students)) {
-            store.state.students = validStudents;
-            store.saveToStorage(APP_CONFIG.storageKeys.STUDENTS, validStudents);
+        if (students !== null) { // null = hata, [] = Firestore gerçekten boş
+          const currentJson = JSON.stringify(store.state.students);
+          const newJson = JSON.stringify(students);
+          if (currentJson !== newJson) {
+            store.state.students = students;
+            store.saveToStorage(APP_CONFIG.storageKeys.STUDENTS, students);
             hasChange = true;
           }
         }
 
-        // 2. Sınavları çek ve doğrula
+        // 2. Sınavlar
         const exams = await fetchCollection("sinavlar");
-        if (exams && exams.length > 0) {
-          const validExams = exams
-            .filter((ex) => ex && (ex.sinavAdi || ex.ogrenciId))
-            .map((ex) => ({
-              id: ex.id || generateId("snv"),
-              ogrenciId: ex.ogrenciId || "",
-              kurumId: ex.kurumId || "kurum_default",
-              sinavAdi: ex.sinavAdi || "Deneme Sınavı",
-              tarih: ex.tarih || new Date().toISOString().split("T")[0],
-              tur: ex.tur || "kazanimli",
-              toplamSoru: ex.toplamSoru || 90,
-              toplamNet: ex.toplamNet || 0,
-              puan: ex.puan || "-",
-              dersSonuclari: ex.dersSonuclari || []
-            }));
-
-          if (validExams.length > 0 && JSON.stringify(validExams) !== JSON.stringify(store.state.exams)) {
-            store.state.exams = validExams;
-            store.saveToStorage(APP_CONFIG.storageKeys.EXAMS, validExams);
+        if (exams !== null) {
+          const currentJson = JSON.stringify(store.state.exams);
+          const newJson = JSON.stringify(exams);
+          if (currentJson !== newJson) {
+            store.state.exams = exams;
+            store.saveToStorage(APP_CONFIG.storageKeys.EXAMS, exams);
             hasChange = true;
           }
         }
 
-        // 3. Raporları çek
+        // 3. Raporlar
         const reports = await fetchCollection("raporlar");
-        if (reports && reports.length > 0) {
-          if (JSON.stringify(reports) !== JSON.stringify(store.state.reports)) {
+        if (reports !== null) {
+          const currentJson = JSON.stringify(store.state.reports);
+          const newJson = JSON.stringify(reports);
+          if (currentJson !== newJson) {
             store.state.reports = reports;
             store.saveToStorage(APP_CONFIG.storageKeys.REPORTS, reports);
             hasChange = true;
           }
         }
 
-        // 4. Kurum bilgilerini çek
+        // 4. Kurum bilgileri
         const kurumlar = await fetchCollection("kurumlar");
-        if (kurumlar && kurumlar.length > 0) {
+        if (kurumlar !== null && kurumlar.length > 0) {
           const kurum = kurumlar[0];
-          if (kurum && kurum.ad && JSON.stringify(kurum) !== JSON.stringify(store.state.institution)) {
+          if (kurum && JSON.stringify(kurum) !== JSON.stringify(store.state.institution)) {
             store.state.institution = { ...store.state.institution, ...kurum };
             store.saveToStorage(APP_CONFIG.storageKeys.INSTITUTION, store.state.institution);
             hasChange = true;
@@ -2494,17 +2383,21 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     }
 
     resetToSampleData() {
-      this.state.students = [...MOCK_STUDENTS];
-      this.state.exams = [...MOCK_EXAMS];
-      this.state.reports = [...MOCK_REPORTS];
+      this.state.students = [];
+      this.state.exams = [];
+      this.state.reports = [];
       this.state.institution = { ...DEFAULT_INSTITUTION };
-      this.saveToStorage(APP_CONFIG.storageKeys.STUDENTS, this.state.students);
-      this.saveToStorage(APP_CONFIG.storageKeys.EXAMS, this.state.exams);
-      this.saveToStorage(APP_CONFIG.storageKeys.REPORTS, this.state.reports);
+      this.saveToStorage(APP_CONFIG.storageKeys.STUDENTS, []);
+      this.saveToStorage(APP_CONFIG.storageKeys.EXAMS, []);
+      this.saveToStorage(APP_CONFIG.storageKeys.REPORTS, []);
       this.saveToStorage(APP_CONFIG.storageKeys.INSTITUTION, this.state.institution);
       this.applyTheme(this.state.institution.temaRengi);
       this.notify("STORE_RESET", null);
-      showToast("Örnek demo verileri yüklendi!", "success");
+      showToast("Tüm yerel veriler temizlendi. Firestore ile senkronize ediliyor...", "info");
+      // Firestore'dan güncel verileri çek
+      FirebaseService.syncAllFromFirestore(this).then((synced) => {
+        if (window.app) window.app.renderCurrentView();
+      });
     }
 
     clearAllData() {

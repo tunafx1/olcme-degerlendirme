@@ -465,17 +465,23 @@
       const projectId = config.projectId || "olcme-uygulama";
 
       try {
-        // REST API ile olcme-uygulama veritabanından çek
+        // REST runQuery API ile olcme-uygulama veritabanından çek
         const fetchCollection = async (coll) => {
-          const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/olcme-uygulama/documents/${coll}?key=${apiKey}`;
-          const res = await fetch(url);
+          const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/olcme-uygulama/documents:runQuery?key=${apiKey}`;
+          const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ structuredQuery: { from: [{ collectionId: coll }] } })
+          });
           if (!res.ok) return [];
           const data = await res.json();
-          return (data.documents || []).map((doc) => {
-            const id = doc.name.split("/").pop();
-            const fields = this.firestoreFieldsToJs(doc.fields);
-            return { id, ...fields };
-          });
+          return (data || [])
+            .filter((item) => item.document && item.document.fields)
+            .map((item) => {
+              const id = item.document.name.split("/").pop();
+              const fields = this.firestoreFieldsToJs(item.document.fields);
+              return { id, ...fields };
+            });
         };
 
         // 1. Öğrencileri çek
@@ -3253,14 +3259,20 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       this.updateSidebarActiveState();
 
       // OTOMATİK BULUT SENKRONİZASYONU (Farklı PC / Cihazlar için)
-      if (FirebaseService.isInitialized) {
+      FirebaseService.syncAllFromFirestore(store).then((synced) => {
+        if (synced) this.renderCurrentView();
+      });
+      FirebaseService.listenRealtime(store, () => {
+        this.renderCurrentView();
+      });
+      // Arka planda 10 saniyede bir diğer cihazlardaki yeni verileri çek
+      setInterval(() => {
         FirebaseService.syncAllFromFirestore(store).then((synced) => {
-          if (synced) this.renderCurrentView();
+          if (synced && !["aiConfig", "firebaseConfig", "settings"].includes(store.getState().currentTab)) {
+            this.renderCurrentView();
+          }
         });
-        FirebaseService.listenRealtime(store, () => {
-          this.renderCurrentView();
-        });
-      }
+      }, 10000);
     }
 
     updateAnalysisProgress(info) {

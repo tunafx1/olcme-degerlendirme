@@ -362,13 +362,26 @@
           } else {
             this.app = window.firebase.initializeApp(config);
           }
-          this.db = window.firebase.firestore ? window.firebase.firestore() : null;
+          
+          // olcme-uygulama veritabanı bağlantısı
+          try {
+            this.db = window.firebase.app().firestore("olcme-uygulama");
+          } catch (dbErr) {
+            try {
+              this.db = window.firebase.firestore(this.app, "olcme-uygulama");
+            } catch (err2) {
+              this.db = window.firebase.firestore ? window.firebase.firestore() : null;
+            }
+          }
+          
           this.storage = window.firebase.storage ? window.firebase.storage() : null;
           this.isInitialized = true;
+          console.log("[Firebase] Firestore veritabanına başarıyla bağlanıldı (olcme-uygulama).");
           return true;
         }
         return false;
       } catch (e) {
+        console.warn("[Firebase] Başlatma uyarısı:", e);
         return false;
       }
     }
@@ -377,7 +390,9 @@
       if (this.isInitialized && this.db) {
         try {
           await this.db.collection(collectionName).doc(docId).set(data, { merge: true });
-        } catch (e) {}
+        } catch (e) {
+          console.warn(`[Firebase] ${collectionName}/${docId} yazma uyarısı:`, e);
+        }
       }
     }
 
@@ -385,7 +400,60 @@
       if (this.isInitialized && this.db) {
         try {
           await this.db.collection(collectionName).doc(docId).delete();
-        } catch (e) {}
+        } catch (e) {
+          console.warn(`[Firebase] ${collectionName}/${docId} silme uyarısı:`, e);
+        }
+      }
+    }
+
+    static async syncAllFromFirestore(store) {
+      if (!this.isInitialized || !this.db) return false;
+      try {
+        // 1. Öğrencileri çek
+        const studentsSnap = await this.db.collection("ogrenciler").get();
+        if (!studentsSnap.empty) {
+          const remoteStudents = [];
+          studentsSnap.forEach((doc) => remoteStudents.push({ id: doc.id, ...doc.data() }));
+          if (remoteStudents.length > 0) {
+            store.state.students = remoteStudents;
+            store.saveToStorage(APP_CONFIG.storageKeys.STUDENTS, remoteStudents);
+          }
+        }
+
+        // 2. Sınavları çek
+        const examsSnap = await this.db.collection("sinavlar").get();
+        if (!examsSnap.empty) {
+          const remoteExams = [];
+          examsSnap.forEach((doc) => remoteExams.push({ id: doc.id, ...doc.data() }));
+          if (remoteExams.length > 0) {
+            store.state.exams = remoteExams;
+            store.saveToStorage(APP_CONFIG.storageKeys.EXAMS, remoteExams);
+          }
+        }
+
+        // 3. Raporları çek
+        const reportsSnap = await this.db.collection("raporlar").get();
+        if (!reportsSnap.empty) {
+          const remoteReports = [];
+          reportsSnap.forEach((doc) => remoteReports.push({ id: doc.id, ...doc.data() }));
+          if (remoteReports.length > 0) {
+            store.state.reports = remoteReports;
+            store.saveToStorage(APP_CONFIG.storageKeys.REPORTS, remoteReports);
+          }
+        }
+
+        // 4. Kurum bilgilerini çek
+        const kurumSnap = await this.db.collection("kurumlar").doc("kurum_default").get();
+        if (kurumSnap.exists) {
+          store.state.institution = { ...store.state.institution, ...kurumSnap.data() };
+          store.saveToStorage(APP_CONFIG.storageKeys.INSTITUTION, store.state.institution);
+        }
+
+        store.notify("FIREBASE_SYNCED", null);
+        return true;
+      } catch (err) {
+        console.warn("[Firebase] Senkronizasyon hatası:", err);
+        return false;
       }
     }
 

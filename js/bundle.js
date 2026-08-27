@@ -3034,15 +3034,49 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
   function renderFirebaseSettingsView() {
     const state = store.getState();
     const fb = state.firebaseConfig || DEFAULT_FIREBASE_CONFIG;
+    const isConn = FirebaseService.isInitialized && FirebaseService.db;
     return `
       <div class="view-container animate-fade-in">
         <div class="view-header">
-          <div><h1 class="view-title">Firebase & Veritabanı Yapılandırması</h1><p class="view-subtitle">Firestore veritabanı ve bulut depolama ayarları.</p></div>
-          <div class="view-actions"><span class="badge badge-success">● Firebase Canlı Bağlantı Aktif (${fb.projectId})</span></div>
+          <div><h1 class="view-title">Firebase & Veritabanı Yapılandırması</h1><p class="view-subtitle">Firestore veritabanı (olcme-uygulama) ve bulut depolama entegrasyonu.</p></div>
+          <div class="view-actions">
+            <span class="badge ${isConn ? "badge-success" : "badge-primary"}" style="font-size: 13px; padding: 6px 12px;">
+              ${isConn ? "● Firestore Canlı Bağlantı Aktif (olcme-uygulama)" : "● Firebase Hazır (olcme-uygulama)"}
+            </span>
+          </div>
+        </div>
+
+        <div class="grid-2-col mb-4">
+          <!-- BULUTA YÜKLEME VE EŞİTLEME PANELİ -->
+          <div class="card p-4" style="background: #f0fdf4; border: 2px solid #86efac;">
+            <h3 class="font-bold text-success mb-2" style="font-size: 17px;">☁️ Tüm Verileri Buluta Yükle / Senkronize Et</h3>
+            <p class="text-muted mb-3" style="font-size: 13px;">
+              Sistemdeki tüm kayıtlı öğrencileri (${state.students.length}), sınavları (${state.exams.length}) ve yapay zekâ raporlarını (${state.reports.length}) tek tıkla <strong>Firebase Firestore (olcme-uygulama)</strong> veritabanına aktarın.
+            </p>
+            <div class="d-flex gap-2 flex-wrap">
+              <button type="button" class="btn btn-success btn-lg font-bold shadow-glow" onclick="window.app.uploadAllToFirebase()">
+                ☁️ Tüm Yerel Verileri Firebase'e Aktar
+              </button>
+              <button type="button" class="btn btn-outline text-success border-success font-bold" onclick="window.app.syncAllFromFirebase()">
+                📥 Firebase'den Eşitle / İndir
+              </button>
+            </div>
+          </div>
+
+          <!-- VERİTABANI BİLGİ KARTI -->
+          <div class="card p-4" style="background: var(--bg-main); border: 1px solid var(--border-color);">
+            <h3 class="font-bold text-dark mb-2" style="font-size: 17px;">📊 Firestore Koleksiyonları</h3>
+            <ul style="list-style: none; padding-left: 0; font-size: 13px; line-height: 2;">
+              <li>📁 <strong>ogrenciler</strong>: ${state.students.length} Kayıtlı Öğrenci</li>
+              <li>📁 <strong>sinavlar</strong>: ${state.exams.length} İşlenmiş Sınav Karnesi</li>
+              <li>📁 <strong>raporlar</strong>: ${state.reports.length} Üretilen AI Etüt Karnesi</li>
+              <li>📁 <strong>kurumlar</strong>: Kurum & Logo Ayarları</li>
+            </ul>
+          </div>
         </div>
 
         <div class="card">
-          <div class="card-header"><h2 class="card-title">Firebase Parametreleri</h2></div>
+          <div class="card-header"><h2 class="card-title">Firebase Bağlantı Parametreleri</h2></div>
           <div class="card-body">
             <form onsubmit="window.app.saveFirebaseConfig(event)">
               <div class="grid-2-col">
@@ -3053,7 +3087,9 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
                 <div class="form-group"><label class="form-label">Auth Domain:</label><input type="text" id="fb-authDomain" class="form-control" value="${fb.authDomain}" /></div>
                 <div class="form-group"><label class="form-label">Storage Bucket:</label><input type="text" id="fb-storageBucket" class="form-control" value="${fb.storageBucket}" /></div>
               </div>
-              <button type="submit" class="btn btn-primary shadow-glow mt-3">Firebase Ayarlarını Güncelle</button>
+              <div class="d-flex justify-between items-center mt-3">
+                <button type="submit" class="btn btn-primary shadow-glow">Firebase Ayarlarını Güncelle</button>
+              </div>
             </form>
           </div>
         </div>
@@ -4587,6 +4623,61 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       store.saveToStorage(APP_CONFIG.storageKeys.FIREBASE_CONFIG, config);
       FirebaseService.init(config);
       showToast("Firebase ayarları kaydedildi.", "success");
+      this.renderCurrentView();
+    }
+
+    async uploadAllToFirebase() {
+      const state = store.getState();
+      if (!FirebaseService.isInitialized || !FirebaseService.db) {
+        FirebaseService.init(state.firebaseConfig || DEFAULT_FIREBASE_CONFIG);
+      }
+      if (!FirebaseService.db) {
+        showToast("Firebase henüz başlatılamadı. Lütfen bağlantı ayarlarını kontrol edin.", "warning");
+        return;
+      }
+
+      showToast("Tüm yerel veriler Firebase Firestore'a aktarılıyor...", "info");
+      try {
+        let count = 0;
+        // 1. Kurum
+        if (state.institution) {
+          await FirebaseService.saveDocument("kurumlar", state.institution.id || "kurum_default", state.institution);
+          count++;
+        }
+
+        // 2. Öğrenciler
+        for (const st of state.students) {
+          await FirebaseService.saveDocument("ogrenciler", st.id, st);
+          count++;
+        }
+
+        // 3. Sınavlar
+        for (const ex of state.exams) {
+          await FirebaseService.saveDocument("sinavlar", ex.id, ex);
+          count++;
+        }
+
+        // 4. Raporlar
+        for (const rep of state.reports) {
+          await FirebaseService.saveDocument("raporlar", rep.id, rep);
+          count++;
+        }
+
+        showToast(`🎉 Harika! ${count} adet kayıt (Öğrenciler, Sınavlar, Raporlar) Firestore (olcme-uygulama) veritabanına başarıyla yüklendi!`, "success", 6000);
+      } catch (err) {
+        showToast("Buluta yükleme hatası: " + err.message, "error");
+      }
+    }
+
+    async syncAllFromFirebase() {
+      showToast("Firebase'den veriler indiriliyor...", "info");
+      const success = await FirebaseService.syncAllFromFirestore(store);
+      if (success) {
+        showToast("✓ Firebase Firestore'daki tüm veriler başarıyla eşitlendi!", "success");
+        this.renderCurrentView();
+      } else {
+        showToast("Firebase senkronizasyonunda bir sorun oluştu.", "error");
+      }
     }
   }
 

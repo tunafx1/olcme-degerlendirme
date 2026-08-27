@@ -3983,26 +3983,27 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       });
     }
 
-    saveSingleParsedExamAndAnalyze() {
+    async saveSingleParsedExamAndAnalyze() {
       const item = this.parsedStudentsList[0];
       if (!item) return;
       const { ogrenci, sinav } = item;
 
-      let student = store.getState().students.find((s) => s.adSoyad.toLowerCase().trim() === ogrenci.adSoyad.toLowerCase().trim());
+      let student = store.getState().students.find((s) => s.adSoyad.toLowerCase().trim() === ogrenci.adSoyad.toLowerCase().trim() || (s.numara && s.numara === ogrenci.numara));
       if (!student) {
         student = { id: generateId("ogr"), adSoyad: ogrenci.adSoyad, sinif: ogrenci.sinif || "8", sube: ogrenci.sube || "8/A", numara: ogrenci.numara || "100", olusturmaTarihi: sinav.tarih || new Date().toISOString().split("T")[0] };
         store.addStudent(student);
       }
 
-      const exam = { id: generateId("snv"), ogrenciId: student.id, kurumId: store.getState().institution.id, sinavAdi: sinav.sinavAdi, tarih: sinav.tarih, tur: "kazanimli", toplamSoru: sinav.toplamSoru || 90, toplamNet: sinav.toplamNet, puan: sinav.puan, dersSonuclari: sinav.dersSonuclari };
+      const exam = { id: generateId("snv"), ogrenciId: student.id, kurumId: store.getState().institution.id, sinavAdi: sinav.sinavAdi || "8. Sınıf Deneme Sınavı", tarih: sinav.tarih || new Date().toISOString().split("T")[0], tur: "kazanimli", toplamSoru: sinav.toplamSoru || 90, toplamNet: sinav.toplamNet, puan: sinav.puan, dersSonuclari: sinav.dersSonuclari };
       store.addExam(exam);
 
       this.closeModal("pdf-upload-modal");
       store.clearExamSelection();
       store.toggleExamSelection(exam.id);
       store.state.selectedStudentIdForAnalysis = student.id;
-      this.navigate("aiAnalysis");
-      setTimeout(() => this.executeAiAnalysis(), 300);
+
+      // Doğrudan AI Analizini Başlat
+      this.runDirectAiAnalysis(student, [exam]);
     }
 
     saveBatchStudentsOnly() {
@@ -4557,6 +4558,12 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         showToast("Lütfen en az bir sınav seçin.", "warning");
         return;
       }
+      return this.runDirectAiAnalysis(student, chosenExams);
+    }
+
+    async runDirectAiAnalysis(student, chosenExams) {
+      if (!student || !chosenExams || chosenExams.length === 0) return;
+      const state = store.getState();
 
       this.isSingleAiParsing = true;
       this.isSingleAiModalMinimized = false;
@@ -4580,7 +4587,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         title: "AI Sınav Analizi Yapılıyor",
         currentStudent: student.adSoyad,
         percent: 50,
-        message: `${student.adSoyad} için haftalık program hazırlanıyor...`
+        message: `${student.adSoyad} için 7 günlük LGS etüt matrisi hazırlanıyor...`
       });
 
       try {
@@ -4622,30 +4629,19 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           isCompleted: true
         });
 
-        // Eğer aiAnalysis sekmesindeyse sonucu göster
-        const wizardCard = document.getElementById("ai-wizard-card");
-        const loadingScreen = document.getElementById("ai-loading-screen");
-        if (loadingScreen) loadingScreen.style.display = "none";
-        if (wizardCard) wizardCard.style.display = "none";
+        // Rapor detay modalını aç
+        this.viewReportDetail(newReport.id);
 
-        const resultContainer = document.getElementById("ai-result-container");
-        if (resultContainer) {
-          resultContainer.style.display = "block";
-          resultContainer.scrollIntoView({ behavior: "smooth", block: "start" });
-          document.getElementById("report-render-target").innerHTML = PDFService.renderReportHTML(newReport, student, chosenExams, state.institution);
-          document.getElementById("res-report-subtitle").innerText = `${student.adSoyad} • ${chosenExams.length} Sınav İncelendi (${newReport.aiSaglayici})`;
-        }
-
-        showToast(`✓ ${student.adSoyad} için yapay zekâ analizi ve 7 günlük LGS etüt matrisi hazırlandı!`, "success");
+        showToast(`✓ ${student.adSoyad} için yapay zekâ analiz karnesi ve 7 günlük LGS etüt matrisi başarıyla hazırlandı!`, "success", 5000);
       } catch (err) {
         this.isSingleAiParsing = false;
         this.closeModal("single-ai-analysis-modal");
         this.updateFloatingPdfAnalyzerWidget();
         if (err.name === "AbortError") {
-          showToast("Analiz işlemi iptal edildi.", "info");
+          showToast("Analiz işlemi kullanıcı tarafından durduruldu.", "info");
           return;
         }
-        showToast("Hata: " + err.message, "error");
+        showToast("AI Analiz Hatası: " + err.message, "error");
       } finally {
         this.aiAbortController = null;
         this.updateAnalysisProgress({ status: "idle", percent: 0 });

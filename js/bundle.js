@@ -3249,6 +3249,11 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     navigate(tabName) {
       store.setTab(tabName);
       window.scrollTo({ top: 0, behavior: "smooth" });
+      // Mobilde sidebar'ı otomatik kapat
+      const sidebar = document.getElementById("app-sidebar");
+      const overlay = document.getElementById("sidebar-overlay");
+      if (sidebar) sidebar.classList.remove("open");
+      if (overlay) overlay.classList.remove("active");
     }
 
     handleStateUpdate(state, event, data) {

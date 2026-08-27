@@ -1,0 +1,619 @@
+/**
+ * Mobil Uyumluluk Stilleri (mobile.css)
+ * Mevcut stilleri BOZMADAN sadece responsive override'lar ekler.
+ */
+
+/* ========================================
+   TABLET (≤1024px)
+   ======================================== */
+@media (max-width: 1024px) {
+
+  /* Sidebar: Üzerinden açılan overlay menü */
+  .sidebar {
+    transform: translateX(-100%);
+    z-index: 1100;
+  }
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  /* Sidebar açıkken arka plan karartma overlay'i */
+  .sidebar-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1050;
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+  }
+  .sidebar-overlay.active {
+    display: block;
+  }
+
+  /* Ana içerik tam genişlik */
+  .main-wrapper {
+    margin-left: 0;
+  }
+
+  /* Hamburger menü butonu göster */
+  .mobile-menu-toggle {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Dashboard hero: yatay → dikey */
+  .dashboard-hero {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 24px 20px;
+    gap: 20px;
+  }
+  .dashboard-hero-actions {
+    min-width: unset;
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .dashboard-hero-actions .btn {
+    flex: 1;
+    min-width: 180px;
+  }
+  .dashboard-hero-title {
+    font-size: 22px;
+  }
+
+  /* Dashboard grid: 2 sütun → 1 sütun */
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* İstatistik kartları: 2 sütun */
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+
+  /* Görünüm başlıkları: yatay → dikey */
+  .view-header {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .view-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .view-actions .btn {
+    flex: 1;
+    min-width: 140px;
+  }
+
+  /* Filtre çubuğu: yatay → dikey */
+  .filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .filter-search {
+    max-width: unset;
+    width: 100%;
+  }
+  .filter-tags {
+    flex-wrap: wrap;
+  }
+  .filter-select-wrap {
+    width: 100%;
+  }
+  .filter-select-wrap select {
+    width: 100%;
+  }
+
+  /* Kart header'ları: dikey */
+  .card-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 16px 18px;
+  }
+  .card-body {
+    padding: 16px 18px;
+  }
+
+  /* Grid düzenler */
+  .grid-2-col {
+    grid-template-columns: 1fr;
+  }
+  .grid-3-col {
+    grid-template-columns: 1fr;
+  }
+
+  /* Provider kartları */
+  .provider-selection-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Bulk export card: dikey */
+  .dashboard-bulk-export-card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .bulk-export-right {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .bulk-export-select {
+    width: 100%;
+    min-width: unset;
+  }
+
+  /* Floating action bar */
+  .floating-action-bar {
+    left: 50%;
+    width: calc(100% - 24px);
+    padding: 12px 16px;
+    gap: 12px;
+    flex-direction: column;
+    border-radius: var(--radius-lg);
+  }
+  .floating-action-bar.active {
+    transform: translateX(-50%) translateY(0);
+  }
+  .floating-bar-info {
+    width: 100%;
+    justify-content: center;
+  }
+  .floating-bar-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  /* Modallar: Tablet'te tam genişlik */
+  .modal-backdrop {
+    padding: 12px;
+  }
+  .modal-dialog {
+    max-width: 100%;
+    max-height: 95vh;
+  }
+  .modal-lg,
+  .modal-xl {
+    max-width: 100%;
+  }
+
+  /* Toast bildirimler */
+  .toast-container {
+    right: 12px;
+    left: 12px;
+    bottom: 12px;
+  }
+  .toast-item {
+    min-width: unset;
+    max-width: unset;
+    width: 100%;
+  }
+
+  /* Floating widget: mobilde biraz küçült */
+  .floating-pdf-analyzer-widget {
+    right: 12px;
+    bottom: 12px;
+    min-width: 240px;
+    max-width: 300px;
+  }
+}
+
+
+/* ========================================
+   MOBİL TELEFON (≤768px)
+   ======================================== */
+@media (max-width: 768px) {
+
+  /* Navbar padding azalt */
+  .top-navbar {
+    height: 60px;
+    padding: 0 12px;
+    gap: 8px;
+  }
+
+  /* Breadcrumb'ı gizle, sadece başlık göster */
+  .navbar-breadcrumb span:not(strong):not(:last-child) {
+    display: none;
+  }
+
+  /* Navbar sağ tarafı sadeleştir */
+  .navbar-right {
+    gap: 8px;
+  }
+  .navbar-right .btn span {
+    display: none;
+  }
+  .navbar-right .btn {
+    padding: 8px;
+    min-width: 36px;
+  }
+
+  /* AI status indicator kısalt */
+  .ai-status-indicator span:not(.ai-pulse-dot) {
+    display: none;
+  }
+  .ai-status-indicator {
+    padding: 6px 10px;
+  }
+
+  /* İçerik alanı: daha az padding */
+  .main-content {
+    padding: 16px 12px;
+  }
+
+  /* İstatistik kartları: 2'li grid */
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .stat-card {
+    padding: 14px 12px;
+    gap: 10px;
+  }
+  .stat-icon-wrap {
+    width: 40px;
+    height: 40px;
+  }
+  .stat-value {
+    font-size: 20px;
+  }
+  .stat-label {
+    font-size: 11px;
+  }
+  .stat-arrow {
+    display: none;
+  }
+
+  /* Dashboard hero: daha küçük padding */
+  .dashboard-hero {
+    padding: 20px 16px;
+    border-radius: var(--radius-md);
+    margin-bottom: 16px;
+  }
+  .dashboard-hero-title {
+    font-size: 18px;
+    line-height: 1.3;
+  }
+  .dashboard-hero-desc {
+    font-size: 13px;
+  }
+  .dashboard-hero-badge {
+    font-size: 11px;
+    padding: 4px 10px;
+    margin-bottom: 10px;
+  }
+  .dashboard-hero-actions {
+    gap: 8px;
+  }
+  .dashboard-hero-actions .btn {
+    font-size: 13px;
+    padding: 10px 14px;
+    min-width: unset;
+  }
+
+  /* Kart başlıkları */
+  .card-title {
+    font-size: 16px;
+  }
+
+  /* Görünüm başlıkları */
+  .view-title {
+    font-size: 20px;
+  }
+  .view-subtitle {
+    font-size: 13px;
+  }
+  .view-actions .btn {
+    font-size: 12px;
+    padding: 8px 12px;
+  }
+
+  /* Tablo hücreleri: daha az padding */
+  .data-table th {
+    padding: 10px 12px;
+    font-size: 11px;
+  }
+  .data-table td {
+    padding: 12px;
+    font-size: 13px;
+  }
+
+  /* Tablo içi butonlar: daha kompakt */
+  .data-table .btn-group {
+    flex-direction: column;
+    gap: 4px;
+  }
+  .data-table .btn-group .btn {
+    width: 100%;
+    justify-content: center;
+    font-size: 11px;
+    padding: 5px 8px;
+  }
+
+  /* Avatarlar: daha küçük */
+  .user-avatar-initials {
+    width: 32px;
+    height: 32px;
+    font-size: 11px;
+  }
+  .user-avatar-group {
+    gap: 8px;
+  }
+
+  /* Modallar: tam ekran yakın */
+  .modal-backdrop {
+    padding: 8px;
+    align-items: flex-end;
+  }
+  .modal-dialog {
+    max-height: 92vh;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+  .modal-header {
+    padding: 16px;
+    gap: 8px;
+  }
+  .modal-title {
+    font-size: 16px;
+  }
+  .modal-body {
+    padding: 16px;
+  }
+  .modal-footer {
+    padding: 12px 16px;
+    flex-wrap: wrap;
+  }
+  .modal-footer .btn {
+    flex: 1;
+    min-width: 100px;
+  }
+
+  /* AI Analiz Sihirbazı kartı */
+  .ai-exam-selection-list {
+    max-height: 200px;
+  }
+  .ai-exam-select-item {
+    padding: 10px 12px;
+    gap: 8px;
+  }
+
+  /* Rapor mini kartları */
+  .report-mini-card {
+    padding: 10px 12px;
+    gap: 10px;
+  }
+  .report-mini-icon {
+    width: 32px;
+    height: 32px;
+  }
+  .report-mini-actions {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  /* Form elemanları */
+  .form-group {
+    margin-bottom: 14px;
+  }
+  .form-control {
+    padding: 9px 12px;
+  }
+  .input-with-action {
+    flex-direction: column;
+  }
+
+  /* Bulk export card */
+  .dashboard-bulk-export-card {
+    padding: 14px 16px;
+    margin-top: 12px;
+    margin-bottom: 16px;
+  }
+  .bulk-export-badge {
+    font-size: 12px;
+  }
+  .bulk-export-desc {
+    font-size: 12px;
+  }
+
+  /* Tabs: yatay kaydırma */
+  .tabs-nav {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .tabs-nav::-webkit-scrollbar {
+    display: none;
+  }
+  .tab-btn {
+    white-space: nowrap;
+    padding: 10px 14px;
+    font-size: 13px;
+  }
+
+  /* Logo upload alanı */
+  .logo-upload-zone {
+    padding: 16px;
+  }
+  .logo-preview-box {
+    flex-direction: column;
+    text-align: center;
+    gap: 10px;
+  }
+
+  /* Tema renk seçici: sarma */
+  .theme-palette-picker {
+    gap: 8px;
+  }
+  .palette-swatch {
+    width: 32px;
+    height: 32px;
+  }
+
+  /* Alert'ler */
+  .alert {
+    padding: 12px 14px;
+    font-size: 13px;
+  }
+
+  /* Code snippet */
+  .code-snippet {
+    padding: 12px;
+    font-size: 12px;
+  }
+}
+
+
+/* ========================================
+   KÜÇÜK MOBİL (≤480px)
+   ======================================== */
+@media (max-width: 480px) {
+
+  /* İstatistik kartları: tam genişlik */
+  .stats-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .stat-card {
+    padding: 12px;
+  }
+
+  /* Hero: minimal */
+  .dashboard-hero {
+    padding: 16px 14px;
+  }
+  .dashboard-hero-title {
+    font-size: 16px;
+  }
+  .dashboard-hero-desc {
+    font-size: 12px;
+  }
+  .dashboard-hero-actions .btn {
+    width: 100%;
+    flex: unset;
+  }
+
+  /* Görünüm başlıkları */
+  .view-title {
+    font-size: 18px;
+  }
+  .view-actions {
+    flex-direction: column;
+  }
+  .view-actions .btn {
+    width: 100%;
+    min-width: unset;
+  }
+
+  /* Filtre butonları: sarma */
+  .filter-tags {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+  }
+  .filter-tags::-webkit-scrollbar {
+    display: none;
+  }
+  .filter-btn {
+    white-space: nowrap;
+    flex-shrink: 0;
+    font-size: 12px;
+    padding: 6px 10px;
+  }
+
+  /* Ana içerik */
+  .main-content {
+    padding: 12px 8px;
+  }
+
+  /* Kart gövdeleri */
+  .card-body {
+    padding: 12px;
+  }
+  .card-header {
+    padding: 12px;
+  }
+
+  /* Tablolarda görünmeyecek sütunlar */
+  .data-table .hide-mobile {
+    display: none;
+  }
+
+  /* Floating bar: daha kompakt */
+  .floating-action-bar {
+    width: calc(100% - 16px);
+    bottom: 8px;
+    padding: 10px 12px;
+  }
+
+  /* Floating widget */
+  .floating-pdf-analyzer-widget {
+    right: 8px;
+    bottom: 8px;
+    min-width: 200px;
+    max-width: 260px;
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+
+  /* Toast bildirimleri */
+  .toast-container {
+    right: 8px;
+    left: 8px;
+    bottom: 8px;
+  }
+  .toast-item {
+    font-size: 12px;
+    padding: 10px 14px;
+  }
+
+  /* Butonlar: mobilde daha küçük */
+  .btn-lg {
+    padding: 10px 16px;
+    font-size: 13px;
+  }
+
+  /* Badge */
+  .badge {
+    font-size: 11px;
+    padding: 3px 8px;
+  }
+}
+
+
+/* ========================================
+   GLOBAL MOBİL YARDIMCILAR
+   ======================================== */
+
+/* Mobil yatay kaydırma önleme */
+html, body {
+  overflow-x: hidden;
+}
+
+/* Touch cihazlarda tap highlight kaldır */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Ekran dışı dokunmatik kaydırma smooth */
+.table-responsive {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* text-truncate yardımcısı */
+.text-truncate {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Justify center yardımcısı */
+.justify-center {
+  justify-content: center;
+}

@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="./css/components.css">
   <link rel="stylesheet" href="./css/report.css">
   <link rel="stylesheet" href="./css/animations.css">
+  <link rel="stylesheet" href="./css/mobile.css">
 
   <!-- DIŞ KÜTÜPHANELER (CDN) -->
   <!-- SheetJS / XLSX Excel Okuyucu -->
@@ -100,12 +101,15 @@
       </div>
     </aside>
 
+    <!-- MOBİL SİDEBAR OVERLAY -->
+    <div class="sidebar-overlay" id="sidebar-overlay" onclick="document.getElementById('app-sidebar').classList.remove('open'); this.classList.remove('active');"></div>
+
     <!-- ANA İÇERİK SARMALAYICI -->
     <div class="main-wrapper">
       <!-- ÜST NAVBAR -->
       <header class="top-navbar">
         <div class="navbar-left">
-          <button class="mobile-menu-toggle" onclick="document.getElementById('app-sidebar').classList.toggle('open')">
+          <button class="mobile-menu-toggle" onclick="document.getElementById('app-sidebar').classList.toggle('open'); document.getElementById('sidebar-overlay').classList.toggle('active');">
             <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
           </button>
           <div class="navbar-breadcrumb">

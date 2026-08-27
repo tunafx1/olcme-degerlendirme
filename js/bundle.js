@@ -2648,6 +2648,9 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     if (!students || students.length === 0) {
       return `<tr><td colspan="6" class="text-center py-5"><div class="empty-state"><h3>Öğrenci Bulunamadı</h3><button class="btn btn-primary btn-sm mt-3" onclick="window.app.openStudentModal()">Yeni Öğrenci Ekle</button></div></td></tr>`;
     }
+    const state = store.getState();
+    const reports = state.reports || [];
+
     return students.map((s) => {
       if (!s) return "";
       const studentExams = (exams || []).filter((e) => e && e.ogrenciId === s.id);
@@ -2655,6 +2658,8 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const initials = (name.split(" ").filter(Boolean).map((n) => n[0]).join("") || "ÖĞ").substring(0, 2).toUpperCase();
       const sinifStr = s.sinif || "8";
       const subeStr = s.sube || "8/A";
+      const studentReports = reports.filter((r) => r && (r.ogrenciId === s.id || (r.ogrenciAdSoyad && r.ogrenciAdSoyad.toLowerCase() === name.toLowerCase())));
+
       return `
         <tr class="student-row" data-id="${s.id || ''}">
           <td>
@@ -2665,7 +2670,18 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           </td>
           <td><span class="badge badge-secondary">${sinifStr}. Sınıf / ${subeStr}</span></td>
           <td><strong>#${s.numara || "-"}</strong></td>
-          <td><span class="badge ${studentExams.length > 0 ? "badge-primary" : "badge-light"}">${studentExams.length} Sınav</span></td>
+          <td>
+            <div class="d-flex flex-column gap-1" style="align-items: flex-start;">
+              <span class="badge ${studentExams.length > 0 ? "badge-primary" : "badge-light"} cursor-pointer" onclick="window.app.openStudentProfile('${s.id}')" title="Sınav geçmişini ve raporları görüntüle" style="cursor: pointer;">
+                📋 ${studentExams.length} Sınav
+              </span>
+              ${studentReports.length > 0 ? `
+                <button class="btn btn-sm btn-outline text-success border-success font-bold" onclick="event.stopPropagation(); window.app.viewLatestStudentReport('${s.id}')" title="En son oluşturulan AI Raporunu aç" style="padding: 2px 8px; font-size: 11px; background: rgba(16, 185, 129, 0.08); border-radius: 99px; border-color: #10b981; cursor: pointer;">
+                  🤖 AI Raporu (${studentReports.length}) ↗
+                </button>
+              ` : ""}
+            </div>
+          </td>
           <td><div>${escapeHtml(s.veliAdSoyad || "-")}</div><div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(s.veliTelefon || "-")}</div></td>
           <td style="text-align: right;">
             <div class="btn-group">
@@ -4092,44 +4108,119 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     }
 
     openStudentProfile(studentId) {
-      const student = store.getState().students.find((s) => s.id === studentId);
+      const state = store.getState();
+      const student = state.students.find((s) => s.id === studentId);
       if (!student) return;
-      const studentExams = store.getState().exams.filter((e) => e.ogrenciId === studentId);
+      const studentExams = state.exams.filter((e) => e.ogrenciId === studentId);
+      const studentReports = state.reports.filter((r) => r.ogrenciId === studentId);
 
       const modalHtml = `
         <div class="modal-backdrop" id="student-profile-modal" onclick="if(event.target === this) window.app.closeModal('student-profile-modal')">
           <div class="modal-dialog modal-lg animate-scale-up">
             <div class="modal-header">
-              <h3 class="modal-title">${student.adSoyad} (${student.sinif}. Sınıf / ${student.sube})</h3>
+              <h3 class="modal-title">${escapeHtml(student.adSoyad)} (${student.sinif}. Sınıf / ${student.sube})</h3>
               <button class="modal-close" onclick="window.app.closeModal('student-profile-modal')">&times;</button>
             </div>
             <div class="modal-body">
-              <div class="d-flex justify-between items-center mb-3">
-                <h4>Sınav Geçmişi (${studentExams.length} Sınav)</h4>
-                <div class="btn-group">
+              <!-- SINAV GEÇMİŞİ -->
+              <div class="d-flex justify-between items-center mb-3" style="flex-wrap: wrap; gap: 8px;">
+                <h4 style="margin: 0;">📋 Sınav Geçmişi (${studentExams.length} Sınav)</h4>
+                <div class="btn-group" style="flex-wrap: wrap; gap: 6px;">
                   <button class="btn btn-sm btn-outline" onclick="window.app.closeModal('student-profile-modal'); window.app.openUploadPdfModal()">📄 PDF Belgesi Yükle</button>
-                  <button class="btn btn-sm btn-primary" onclick="window.app.closeModal('student-profile-modal'); window.app.analyzeStudentAllExams('${student.id}')">Yapay Zekâ Analizini Başlat</button>
+                  <button class="btn btn-sm btn-primary" onclick="window.app.closeModal('student-profile-modal'); window.app.analyzeStudentAllExams('${student.id}')">🤖 Yapay Zekâ Analizini Başlat</button>
                 </div>
               </div>
-              <table class="data-table">
-                <thead><tr><th>Sınav Adı</th><th>Tarih</th><th>Net</th><th>Puan</th><th>İşlem</th></tr></thead>
-                <tbody>
-                  ${studentExams.map((e) => `
-                    <tr>
-                      <td><strong>${e.sinavAdi}</strong></td>
-                      <td>${formatDate(e.tarih)}</td>
-                      <td><strong class="text-primary">${e.toplamNet || "-"} Net</strong></td>
-                      <td>${e.puan ? `<span class="badge badge-warning">${e.puan}</span>` : "-"}</td>
-                      <td><button class="btn btn-sm btn-ghost text-primary" onclick="window.app.closeModal('student-profile-modal'); window.app.analyzeSingleExam('${e.id}')">Analiz</button></td>
-                    </tr>
-                  `).join("")}
-                </tbody>
-              </table>
+              ${studentExams.length === 0 ? `
+                <div class="empty-state p-4 text-center" style="border: 1px dashed var(--border-color); border-radius: var(--radius-md); margin-bottom: 20px;">
+                  <p style="color: var(--text-muted); font-size: 13px;">Bu öğrenciye ait sınav kaydı yok. PDF yükleyerek sınav ekleyebilirsiniz.</p>
+                </div>
+              ` : `
+                <div class="table-responsive" style="margin-bottom: 20px;">
+                  <table class="data-table">
+                    <thead><tr><th>Sınav Adı</th><th>Tarih</th><th>Net</th><th>Puan</th><th>İşlem</th></tr></thead>
+                    <tbody>
+                      ${studentExams.map((e) => {
+                        const associatedReport = studentReports.find((r) => (r.kullanilanSinavIdler || []).includes(e.id) || r.sinavId === e.id);
+                        return `
+                        <tr>
+                          <td><strong>${escapeHtml(e.sinavAdi || 'Sınav')}</strong></td>
+                          <td>${formatDate(e.tarih)}</td>
+                          <td><strong class="text-primary">${e.toplamNet || "-"} Net</strong></td>
+                          <td>${e.puan ? `<span class="badge badge-warning">${e.puan}</span>` : "-"}</td>
+                          <td>
+                            <div class="btn-group" style="flex-wrap: wrap; gap: 4px;">
+                              ${associatedReport ? `
+                                <button class="btn btn-sm btn-success text-white font-bold" onclick="window.app.closeModal('student-profile-modal'); window.app.viewReportDetail('${associatedReport.id}')" title="Bu sınava ait oluşturulmuş AI raporunu görüntüle">
+                                  📑 AI Raporu ↗
+                                </button>
+                              ` : ""}
+                              <button class="btn btn-sm btn-ghost text-primary" onclick="window.app.closeModal('student-profile-modal'); window.app.viewExamDetail('${e.id}')">📊 İncele</button>
+                              <button class="btn btn-sm btn-ghost" onclick="window.app.closeModal('student-profile-modal'); window.app.analyzeSingleExam('${e.id}')">🤖 Analiz</button>
+                            </div>
+                          </td>
+                        </tr>`;
+                      }).join("")}
+                    </tbody>
+                  </table>
+                </div>
+              `}
+
+              <!-- OLUŞTURULMUŞ AI RAPORLARI -->
+              <div style="border-top: 1px solid var(--border-color); padding-top: 16px;">
+                <div class="d-flex justify-between items-center mb-3" style="flex-wrap: wrap; gap: 8px;">
+                  <h4 style="margin: 0;">📑 Oluşturulmuş AI Raporları (${studentReports.length})</h4>
+                </div>
+                ${studentReports.length === 0 ? `
+                  <div class="empty-state p-4 text-center" style="border: 1px dashed var(--border-color); border-radius: var(--radius-md);">
+                    <p style="color: var(--text-muted); font-size: 13px;">Bu öğrenci için henüz yapay zekâ analiz raporu oluşturulmadı.</p>
+                    <button class="btn btn-sm btn-primary mt-2" onclick="window.app.closeModal('student-profile-modal'); window.app.analyzeStudentAllExams('${student.id}')" ${studentExams.length === 0 ? "disabled" : ""}>
+                      🤖 Hemen Rapor Oluştur
+                    </button>
+                  </div>
+                ` : `
+                  <div class="recent-reports-list">
+                    ${studentReports.map((rep) => {
+                      const repExamCount = rep.kullanilanSinavIdler ? rep.kullanilanSinavIdler.length : 1;
+                      return `
+                        <div class="report-mini-card" style="cursor: pointer;" onclick="window.app.closeModal('student-profile-modal'); window.app.viewReportDetail('${rep.id}')">
+                          <div class="report-mini-icon">
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                          </div>
+                          <div class="report-mini-info">
+                            <div class="report-mini-name">${escapeHtml(rep.ogrenciAdSoyad || student.adSoyad)} — AI Raporu</div>
+                            <div class="report-mini-meta">
+                              <span>📅 ${formatDate(rep.olusturmaTarihi)}</span>
+                              <span>•</span>
+                              <span>📊 ${repExamCount} Sınav Analizi</span>
+                            </div>
+                          </div>
+                          <div class="report-mini-actions" onclick="event.stopPropagation()">
+                            <button class="btn btn-sm btn-outline" onclick="window.app.closeModal('student-profile-modal'); window.app.viewReportDetail('${rep.id}')">📄 İncele</button>
+                            <button class="btn btn-sm btn-primary" onclick="window.app.closeModal('student-profile-modal'); window.app.downloadReportPDF('${rep.id}')">⬇ PDF</button>
+                          </div>
+                        </div>
+                      `;
+                    }).join("")}
+                  </div>
+                `}
+              </div>
             </div>
           </div>
         </div>
       `;
       this.renderModalContainer(modalHtml);
+    }
+
+    viewLatestStudentReport(studentId) {
+      const state = store.getState();
+      const student = state.students.find((s) => s.id === studentId);
+      const studentName = student ? (student.adSoyad || "").toLowerCase() : "";
+      const studentReports = state.reports.filter((r) => r && (r.ogrenciId === studentId || (studentName && r.ogrenciAdSoyad && r.ogrenciAdSoyad.toLowerCase() === studentName)));
+      if (studentReports.length > 0) {
+        this.viewReportDetail(studentReports[0].id);
+      } else {
+        this.openStudentProfile(studentId);
+      }
     }
 
     deleteStudentConfirm(studentId) {

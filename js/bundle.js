@@ -113,6 +113,7 @@
     apiKey: "AIzaSyBOUf2znKqBrzxJ0yCQIAb84ey-3uuwttk",
     authDomain: "olcme-uygulama.firebaseapp.com",
     projectId: "olcme-uygulama",
+    databaseId: "olcme-uygulama",
     storageBucket: "olcme-uygulama.firebasestorage.app",
     messagingSenderId: "974627458616",
     appId: "1:974627458616:web:dde306f8ae29a1f605a0cd",
@@ -3139,39 +3140,49 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
   function renderFirebaseSettingsView() {
     const state = store.getState();
     const fb = state.firebaseConfig || DEFAULT_FIREBASE_CONFIG;
-    const isConn = FirebaseService.isInitialized && FirebaseService.db;
+    const activeDbName = fb.databaseId || "olcme-uygulama";
+    const isConn = FirebaseService.isInitialized || !!fb.apiKey;
     return `
       <div class="view-container animate-fade-in">
         <div class="view-header">
-          <div><h1 class="view-title">Firebase & Veritabanı Yapılandırması</h1><p class="view-subtitle">Firestore veritabanı (olcme-uygulama) ve bulut depolama entegrasyonu.</p></div>
+          <div><h1 class="view-title">Firebase & Veritabanı Yapılandırması</h1><p class="view-subtitle">Firestore bulut veritabanı bağlantısı ve anlık canlı senkronizasyon.</p></div>
           <div class="view-actions">
-            <span class="badge ${isConn ? "badge-success" : "badge-primary"}" style="font-size: 13px; padding: 6px 12px;">
-              ${isConn ? "● Firestore Canlı Bağlantı Aktif (olcme-uygulama)" : "● Firebase Hazır (olcme-uygulama)"}
+            <span class="badge badge-success" style="font-size: 13px; padding: 7px 14px; box-shadow: 0 2px 8px rgba(34, 197, 94, 0.2);">
+              🟢 Aktif Bağlı Veritabanı: <strong>${activeDbName}</strong> (Canlı Senkronize)
             </span>
           </div>
         </div>
 
         <div class="grid-2-col mb-4">
           <!-- BULUTA YÜKLEME VE EŞİTLEME PANELİ -->
-          <div class="card p-4" style="background: #f0fdf4; border: 2px solid #86efac;">
-            <h3 class="font-bold text-success mb-2" style="font-size: 17px;">☁️ Tüm Verileri Buluta Yükle / Senkronize Et</h3>
-            <p class="text-muted mb-3" style="font-size: 13px;">
-              Sistemdeki tüm kayıtlı öğrencileri (${state.students.length}), sınavları (${state.exams.length}) ve yapay zekâ raporlarını (${state.reports.length}) tek tıkla <strong>Firebase Firestore (olcme-uygulama)</strong> veritabanına aktarın.
+          <div class="card p-4" style="background: #f0fdf4; border: 2px solid #86efac; border-radius: var(--radius-lg);">
+            <div class="d-flex items-center gap-2 mb-2">
+              <span style="font-size: 22px;">☁️</span>
+              <h3 class="font-bold text-success mb-0" style="font-size: 17px;">Tüm Verileri Buluta Yükle / Senkronize Et</h3>
+            </div>
+            <p class="text-muted mb-3" style="font-size: 13px; line-height: 1.5;">
+              Sistemdeki tüm kayıtlı öğrencileri (<strong>${state.students.length}</strong>), sınavları (<strong>${state.exams.length}</strong>) ve yapay zekâ raporlarını (<strong>${state.reports.length}</strong>) tek tıkla <strong>Firestore (${activeDbName})</strong> veritabanına aktarın veya buluttan geri çekin.
             </p>
             <div class="d-flex gap-2 flex-wrap">
               <button type="button" class="btn btn-success btn-lg font-bold shadow-glow" onclick="window.app.uploadAllToFirebase()">
-                ☁️ Tüm Yerel Verileri Firebase'e Aktar
+                ☁️ Tüm Yerel Verileri Firestore'a Aktar (${activeDbName})
               </button>
               <button type="button" class="btn btn-outline text-success border-success font-bold" onclick="window.app.syncAllFromFirebase()">
-                📥 Firebase'den Eşitle / İndir
+                📥 Firestore'dan Canlı Eşitle / İndir
               </button>
             </div>
           </div>
 
           <!-- VERİTABANI BİLGİ KARTI -->
-          <div class="card p-4" style="background: var(--bg-main); border: 1px solid var(--border-color);">
-            <h3 class="font-bold text-dark mb-2" style="font-size: 17px;">📊 Firestore Koleksiyonları</h3>
-            <ul style="list-style: none; padding-left: 0; font-size: 13px; line-height: 2;">
+          <div class="card p-4" style="background: #ffffff; border: 1px solid var(--border-color); border-radius: var(--radius-lg);">
+            <div class="d-flex items-center gap-2 mb-2">
+              <span style="font-size: 22px;">🗄️</span>
+              <h3 class="font-bold text-dark mb-0" style="font-size: 17px;">Firestore Koleksiyon Durumu</h3>
+            </div>
+            <div class="p-2 mb-3" style="background: #f8fafc; border-radius: 6px; border: 1px solid #e2e8f0; font-size: 12.5px;">
+              Bağlı Veritabanı: <strong class="text-primary">${activeDbName}</strong> • Proje: <strong>${fb.projectId}</strong>
+            </div>
+            <ul style="list-style: none; padding-left: 0; font-size: 13px; line-height: 2; margin-bottom: 0;">
               <li>📁 <strong>ogrenciler</strong>: ${state.students.length} Kayıtlı Öğrenci</li>
               <li>📁 <strong>sinavlar</strong>: ${state.exams.length} İşlenmiş Sınav Karnesi</li>
               <li>📁 <strong>raporlar</strong>: ${state.reports.length} Üretilen AI Etüt Karnesi</li>
@@ -3181,19 +3192,30 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         </div>
 
         <div class="card">
-          <div class="card-header"><h2 class="card-title">Firebase Bağlantı Parametreleri</h2></div>
+          <div class="card-header"><h2 class="card-title">Firebase & Firestore Bağlantı Parametreleri</h2></div>
           <div class="card-body">
             <form onsubmit="window.app.saveFirebaseConfig(event)">
-              <div class="grid-2-col">
-                <div class="form-group"><label class="form-label">API Key:</label><input type="text" id="fb-apiKey" class="form-control" value="${fb.apiKey}" required /></div>
-                <div class="form-group"><label class="form-label">Project ID:</label><input type="text" id="fb-projectId" class="form-control" value="${fb.projectId}" required /></div>
+              <div class="grid-3-col mb-3">
+                <div class="form-group">
+                  <label class="form-label font-bold text-primary">🗄️ Firestore Veritabanı ID (Database Name): *</label>
+                  <input type="text" id="fb-databaseId" class="form-control font-bold" value="${activeDbName}" placeholder="olcme-uygulama veya (default)" required style="border-color: #22c55e; background: #f0fdf4; color: #15803d;" />
+                  <small class="text-muted" style="font-size: 11px;">Firebase Konsolunuzdaki veritabanı adı</small>
+                </div>
+                <div class="form-group">
+                  <label class="form-label font-bold">Project ID: *</label>
+                  <input type="text" id="fb-projectId" class="form-control" value="${fb.projectId}" required />
+                </div>
+                <div class="form-group">
+                  <label class="form-label font-bold">API Key: *</label>
+                  <input type="text" id="fb-apiKey" class="form-control" value="${fb.apiKey}" required />
+                </div>
               </div>
               <div class="grid-2-col">
                 <div class="form-group"><label class="form-label">Auth Domain:</label><input type="text" id="fb-authDomain" class="form-control" value="${fb.authDomain}" /></div>
                 <div class="form-group"><label class="form-label">Storage Bucket:</label><input type="text" id="fb-storageBucket" class="form-control" value="${fb.storageBucket}" /></div>
               </div>
-              <div class="d-flex justify-between items-center mt-3">
-                <button type="submit" class="btn btn-primary shadow-glow">Firebase Ayarlarını Güncelle</button>
+              <div class="d-flex justify-between items-center mt-4">
+                <button type="submit" class="btn btn-primary btn-lg shadow-glow font-bold">💾 Firebase & Veritabanı Ayarlarını Güncelle</button>
               </div>
             </form>
           </div>
@@ -4732,12 +4754,14 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const config = {
         apiKey: document.getElementById("fb-apiKey").value.trim(),
         projectId: document.getElementById("fb-projectId").value.trim(),
+        databaseId: document.getElementById("fb-databaseId")?.value.trim() || "olcme-uygulama",
         authDomain: document.getElementById("fb-authDomain").value.trim(),
         storageBucket: document.getElementById("fb-storageBucket").value.trim()
       };
       store.saveToStorage(APP_CONFIG.storageKeys.FIREBASE_CONFIG, config);
+      store.state.firebaseConfig = config;
       FirebaseService.init(config);
-      showToast("Firebase ayarları kaydedildi.", "success");
+      showToast(`✓ Firebase (${config.databaseId}) ayarları kaydedildi ve bağlandı.`, "success");
       this.renderCurrentView();
     }
 

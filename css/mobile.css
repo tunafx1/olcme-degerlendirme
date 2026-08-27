@@ -4,6 +4,55 @@
  */
 
 /* ========================================
+   GLOBAL — TAŞMA ÖNLEYİCİ
+   ======================================== */
+html, body {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.app-layout {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+.main-wrapper {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+.main-content {
+  max-width: 100%;
+  overflow-x: hidden;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.view-container {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.table-responsive {
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+}
+
+.text-truncate {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.justify-center {
+  justify-content: center;
+}
+
+/* ========================================
    TABLET (≤1024px)
    ======================================== */
 @media (max-width: 1024px) {
@@ -34,6 +83,7 @@
   /* Ana içerik tam genişlik */
   .main-wrapper {
     margin-left: 0;
+    width: 100%;
   }
 
   /* Hamburger menü butonu göster */
@@ -41,24 +91,22 @@
     display: flex !important;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
   }
 
   /* Dashboard hero: yatay → dikey */
   .dashboard-hero {
     flex-direction: column;
-    align-items: flex-start;
+    align-items: stretch;
     padding: 24px 20px;
     gap: 20px;
   }
   .dashboard-hero-actions {
     min-width: unset;
     width: 100%;
-    flex-direction: row;
-    flex-wrap: wrap;
   }
   .dashboard-hero-actions .btn {
-    flex: 1;
-    min-width: 180px;
+    width: 100%;
   }
   .dashboard-hero-title {
     font-size: 22px;
@@ -79,6 +127,7 @@
   .view-header {
     flex-direction: column;
     gap: 12px;
+    align-items: stretch;
   }
   .view-actions {
     width: 100%;
@@ -86,7 +135,7 @@
   }
   .view-actions .btn {
     flex: 1;
-    min-width: 140px;
+    min-width: 0;
   }
 
   /* Filtre çubuğu: yatay → dikey */
@@ -114,10 +163,10 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 10px;
-    padding: 16px 18px;
+    padding: 16px;
   }
   .card-body {
-    padding: 16px 18px;
+    padding: 16px;
   }
 
   /* Grid düzenler */
@@ -149,24 +198,34 @@
 
   /* Floating action bar */
   .floating-action-bar {
-    left: 50%;
-    width: calc(100% - 24px);
-    padding: 12px 16px;
-    gap: 12px;
+    left: 8px !important;
+    right: 8px !important;
+    width: auto !important;
+    transform: translateY(120px) !important;
+    padding: 10px 12px;
+    gap: 8px;
     flex-direction: column;
     border-radius: var(--radius-lg);
   }
   .floating-action-bar.active {
-    transform: translateX(-50%) translateY(0);
+    transform: translateY(0) !important;
   }
   .floating-bar-info {
     width: 100%;
     justify-content: center;
+    flex-wrap: wrap;
+  }
+  .floating-bar-text {
+    display: none;
   }
   .floating-bar-actions {
     width: 100%;
     flex-wrap: wrap;
     justify-content: center;
+  }
+  .floating-bar-actions .btn {
+    font-size: 11px;
+    padding: 6px 10px;
   }
 
   /* Modallar: Tablet'te tam genişlik */
@@ -209,9 +268,9 @@
    ======================================== */
 @media (max-width: 768px) {
 
-  /* Navbar padding azalt */
+  /* Navbar */
   .top-navbar {
-    height: 60px;
+    height: 56px;
     padding: 0 12px;
     gap: 8px;
   }
@@ -220,10 +279,18 @@
   .navbar-breadcrumb span:not(strong):not(:last-child) {
     display: none;
   }
+  .navbar-breadcrumb strong {
+    font-size: 13px;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 
   /* Navbar sağ tarafı sadeleştir */
   .navbar-right {
-    gap: 8px;
+    gap: 6px;
+    flex-shrink: 0;
   }
   .navbar-right .btn span {
     display: none;
@@ -243,24 +310,28 @@
 
   /* İçerik alanı: daha az padding */
   .main-content {
-    padding: 16px 12px;
+    padding: 14px 10px;
   }
 
-  /* İstatistik kartları: 2'li grid */
+  /* İstatistik kartları */
   .stats-grid {
     grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
+    gap: 8px;
   }
   .stat-card {
-    padding: 14px 12px;
-    gap: 10px;
+    padding: 12px 10px;
+    gap: 8px;
   }
   .stat-icon-wrap {
-    width: 40px;
-    height: 40px;
+    width: 38px;
+    height: 38px;
+  }
+  .stat-icon-wrap svg {
+    width: 18px;
+    height: 18px;
   }
   .stat-value {
-    font-size: 20px;
+    font-size: 18px;
   }
   .stat-label {
     font-size: 11px;
@@ -269,108 +340,132 @@
     display: none;
   }
 
-  /* Dashboard hero: daha küçük padding */
+  /* Dashboard hero: daha küçük */
   .dashboard-hero {
-    padding: 20px 16px;
+    padding: 18px 14px;
     border-radius: var(--radius-md);
-    margin-bottom: 16px;
+    margin-bottom: 14px;
   }
   .dashboard-hero-title {
-    font-size: 18px;
+    font-size: 17px;
     line-height: 1.3;
   }
   .dashboard-hero-desc {
-    font-size: 13px;
+    font-size: 12px;
   }
   .dashboard-hero-badge {
-    font-size: 11px;
+    font-size: 10px;
     padding: 4px 10px;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
   }
   .dashboard-hero-actions {
     gap: 8px;
   }
   .dashboard-hero-actions .btn {
-    font-size: 13px;
-    padding: 10px 14px;
-    min-width: unset;
+    font-size: 12px;
+    padding: 10px 12px;
+    width: 100%;
+  }
+  .dashboard-hero-actions .btn svg {
+    width: 14px;
+    height: 14px;
   }
 
   /* Kart başlıkları */
   .card-title {
-    font-size: 16px;
+    font-size: 15px;
+  }
+  .card-header {
+    padding: 12px 14px;
+  }
+  .card-body {
+    padding: 12px 14px;
+  }
+  .card-header .btn-group {
+    width: 100%;
+  }
+  .card-header .btn-group .btn {
+    flex: 1;
+    font-size: 11px;
   }
 
   /* Görünüm başlıkları */
   .view-title {
-    font-size: 20px;
+    font-size: 18px;
   }
   .view-subtitle {
-    font-size: 13px;
+    font-size: 12px;
+  }
+  .view-actions {
+    flex-direction: column;
   }
   .view-actions .btn {
+    width: 100%;
     font-size: 12px;
-    padding: 8px 12px;
+    padding: 10px 14px;
+    justify-content: center;
   }
 
   /* Tablo hücreleri: daha az padding */
   .data-table th {
-    padding: 10px 12px;
-    font-size: 11px;
+    padding: 8px 10px;
+    font-size: 10px;
   }
   .data-table td {
-    padding: 12px;
-    font-size: 13px;
+    padding: 10px;
+    font-size: 12px;
   }
 
   /* Tablo içi butonlar: daha kompakt */
   .data-table .btn-group {
     flex-direction: column;
-    gap: 4px;
+    gap: 3px;
   }
   .data-table .btn-group .btn {
     width: 100%;
     justify-content: center;
     font-size: 11px;
-    padding: 5px 8px;
+    padding: 4px 6px;
   }
 
   /* Avatarlar: daha küçük */
   .user-avatar-initials {
-    width: 32px;
-    height: 32px;
-    font-size: 11px;
+    width: 30px;
+    height: 30px;
+    font-size: 10px;
   }
   .user-avatar-group {
     gap: 8px;
   }
 
-  /* Modallar: tam ekran yakın */
+  /* Modallar: tam ekran */
   .modal-backdrop {
-    padding: 8px;
+    padding: 0;
     align-items: flex-end;
   }
   .modal-dialog {
-    max-height: 92vh;
+    max-height: 95vh;
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    max-width: 100%;
   }
   .modal-header {
-    padding: 16px;
+    padding: 14px;
     gap: 8px;
   }
   .modal-title {
-    font-size: 16px;
+    font-size: 15px;
   }
   .modal-body {
-    padding: 16px;
+    padding: 14px;
   }
   .modal-footer {
-    padding: 12px 16px;
+    padding: 12px 14px;
     flex-wrap: wrap;
   }
   .modal-footer .btn {
     flex: 1;
-    min-width: 100px;
+    min-width: 80px;
+    font-size: 12px;
   }
 
   /* AI Analiz Sihirbazı kartı */
@@ -384,16 +479,19 @@
 
   /* Rapor mini kartları */
   .report-mini-card {
-    padding: 10px 12px;
-    gap: 10px;
+    padding: 10px;
+    gap: 8px;
   }
   .report-mini-icon {
-    width: 32px;
-    height: 32px;
+    width: 30px;
+    height: 30px;
   }
   .report-mini-actions {
     flex-direction: column;
-    gap: 4px;
+    gap: 3px;
+  }
+  .report-mini-name {
+    font-size: 13px;
   }
 
   /* Form elemanları */
@@ -402,6 +500,7 @@
   }
   .form-control {
     padding: 9px 12px;
+    font-size: 14px; /* iOS zoom önlemek için ≥16px de olabilir */
   }
   .input-with-action {
     flex-direction: column;
@@ -409,15 +508,15 @@
 
   /* Bulk export card */
   .dashboard-bulk-export-card {
-    padding: 14px 16px;
-    margin-top: 12px;
-    margin-bottom: 16px;
+    padding: 12px 14px;
+    margin-top: 10px;
+    margin-bottom: 14px;
   }
   .bulk-export-badge {
     font-size: 12px;
   }
   .bulk-export-desc {
-    font-size: 12px;
+    font-size: 11px;
   }
 
   /* Tabs: yatay kaydırma */
@@ -437,7 +536,7 @@
 
   /* Logo upload alanı */
   .logo-upload-zone {
-    padding: 16px;
+    padding: 14px;
   }
   .logo-preview-box {
     flex-direction: column;
@@ -445,71 +544,51 @@
     gap: 10px;
   }
 
-  /* Tema renk seçici: sarma */
+  /* Tema renk seçici */
   .theme-palette-picker {
     gap: 8px;
   }
   .palette-swatch {
-    width: 32px;
-    height: 32px;
+    width: 30px;
+    height: 30px;
   }
 
   /* Alert'ler */
   .alert {
-    padding: 12px 14px;
-    font-size: 13px;
+    padding: 10px 12px;
+    font-size: 12px;
   }
 
   /* Code snippet */
   .code-snippet {
-    padding: 12px;
-    font-size: 12px;
-  }
-}
-
-
-/* ========================================
-   KÜÇÜK MOBİL (≤480px)
-   ======================================== */
-@media (max-width: 480px) {
-
-  /* İstatistik kartları: tam genişlik */
-  .stats-grid {
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
-  .stat-card {
-    padding: 12px;
+    padding: 10px;
+    font-size: 11px;
   }
 
-  /* Hero: minimal */
-  .dashboard-hero {
-    padding: 16px 14px;
+  /* Btn türleri */
+  .btn {
+    font-size: 13px;
   }
-  .dashboard-hero-title {
-    font-size: 16px;
+  .btn-lg {
+    padding: 10px 16px;
+    font-size: 13px;
   }
-  .dashboard-hero-desc {
-    font-size: 12px;
+  .btn svg {
+    flex-shrink: 0;
   }
-  .dashboard-hero-actions .btn {
+
+  /* Badge */
+  .badge {
+    font-size: 11px;
+    padding: 3px 8px;
+  }
+
+  /* Success buton */
+  .btn-success {
     width: 100%;
-    flex: unset;
   }
 
-  /* Görünüm başlıkları */
-  .view-title {
-    font-size: 18px;
-  }
-  .view-actions {
-    flex-direction: column;
-  }
-  .view-actions .btn {
-    width: 100%;
-    min-width: unset;
-  }
-
-  /* Filtre butonları: sarma */
+  /* Filtre butonları wrap */
   .filter-tags {
     overflow-x: auto;
     flex-wrap: nowrap;
@@ -526,94 +605,109 @@
     font-size: 12px;
     padding: 6px 10px;
   }
-
-  /* Ana içerik */
-  .main-content {
-    padding: 12px 8px;
-  }
-
-  /* Kart gövdeleri */
-  .card-body {
-    padding: 12px;
-  }
-  .card-header {
-    padding: 12px;
-  }
-
-  /* Tablolarda görünmeyecek sütunlar */
-  .data-table .hide-mobile {
-    display: none;
-  }
-
-  /* Floating bar: daha kompakt */
-  .floating-action-bar {
-    width: calc(100% - 16px);
-    bottom: 8px;
-    padding: 10px 12px;
-  }
-
-  /* Floating widget */
-  .floating-pdf-analyzer-widget {
-    right: 8px;
-    bottom: 8px;
-    min-width: 200px;
-    max-width: 260px;
-    padding: 10px 12px;
-    font-size: 12px;
-  }
-
-  /* Toast bildirimleri */
-  .toast-container {
-    right: 8px;
-    left: 8px;
-    bottom: 8px;
-  }
-  .toast-item {
-    font-size: 12px;
-    padding: 10px 14px;
-  }
-
-  /* Butonlar: mobilde daha küçük */
-  .btn-lg {
-    padding: 10px 16px;
-    font-size: 13px;
-  }
-
-  /* Badge */
-  .badge {
-    font-size: 11px;
-    padding: 3px 8px;
-  }
 }
 
 
 /* ========================================
-   GLOBAL MOBİL YARDIMCILAR
+   KÜÇÜK MOBİL (≤480px)
    ======================================== */
+@media (max-width: 480px) {
 
-/* Mobil yatay kaydırma önleme */
-html, body {
-  overflow-x: hidden;
-}
+  /* İstatistik kartları: tam genişlik */
+  .stats-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .stat-card {
+    padding: 10px 8px;
+    gap: 6px;
+  }
+  .stat-icon-wrap {
+    width: 32px;
+    height: 32px;
+  }
+  .stat-value {
+    font-size: 16px;
+  }
+  .stat-label {
+    font-size: 10px;
+  }
 
-/* Touch cihazlarda tap highlight kaldır */
-* {
-  -webkit-tap-highlight-color: transparent;
-}
+  /* Hero: minimal */
+  .dashboard-hero {
+    padding: 14px 12px;
+  }
+  .dashboard-hero-title {
+    font-size: 15px;
+  }
+  .dashboard-hero-desc {
+    font-size: 11px;
+  }
+  .dashboard-hero-actions .btn {
+    font-size: 11px;
+    padding: 8px 10px;
+  }
 
-/* Ekran dışı dokunmatik kaydırma smooth */
-.table-responsive {
-  -webkit-overflow-scrolling: touch;
-}
+  /* Görünüm başlıkları */
+  .view-title {
+    font-size: 16px;
+  }
 
-/* text-truncate yardımcısı */
-.text-truncate {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+  /* Navbar breadcrumb */
+  .navbar-breadcrumb strong {
+    max-width: 140px;
+    font-size: 12px;
+  }
 
-/* Justify center yardımcısı */
-.justify-center {
-  justify-content: center;
+  /* Ana içerik */
+  .main-content {
+    padding: 10px 6px;
+  }
+
+  /* Kart gövdeleri */
+  .card-body {
+    padding: 10px;
+  }
+  .card-header {
+    padding: 10px;
+  }
+
+  /* Floating bar: daha kompakt */
+  .floating-action-bar {
+    bottom: 6px !important;
+    left: 4px !important;
+    right: 4px !important;
+    padding: 8px 8px;
+  }
+
+  /* Floating widget */
+  .floating-pdf-analyzer-widget {
+    right: 6px;
+    bottom: 6px;
+    min-width: 180px;
+    max-width: 240px;
+    padding: 8px 10px;
+    font-size: 11px;
+  }
+
+  /* Toast bildirimleri */
+  .toast-container {
+    right: 6px;
+    left: 6px;
+    bottom: 6px;
+  }
+  .toast-item {
+    font-size: 11px;
+    padding: 8px 12px;
+  }
+
+  /* Tablo font küçültme */
+  .data-table th {
+    padding: 6px 8px;
+    font-size: 9px;
+  }
+  .data-table td {
+    padding: 8px;
+    font-size: 11px;
+  }
 }

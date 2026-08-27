@@ -1,0 +1,134 @@
+/**
+ * Mikro Animasyonlar ve Yükleme Efektleri (animations.css)
+ */
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleUp {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pulseGlow {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(var(--primary-rgb), 0.6); }
+  70% { transform: scale(1); box-shadow: 0 0 0 12px rgba(var(--primary-rgb), 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(var(--primary-rgb), 0); }
+}
+
+@keyframes aiOrbPulse {
+  0% { transform: scale(0.8) rotate(0deg); filter: hue-rotate(0deg); }
+  50% { transform: scale(1.1) rotate(180deg); filter: hue-rotate(90deg); }
+  100% { transform: scale(0.8) rotate(360deg); filter: hue-rotate(0deg); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.25s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.animate-scale-up {
+  animation: scaleUp 0.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.animate-slide-in {
+  animation: slideInRight 0.25s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: #38bdf8;
+  box-shadow: 0 0 8px #38bdf8;
+  display: inline-block;
+}
+
+.ai-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--primary-color);
+  box-shadow: 0 0 8px var(--primary-color);
+  animation: pulseGlow 2s infinite;
+  display: inline-block;
+}
+
+/* AI YÜKLEME EKRANI (LIVELOADER) */
+.ai-loading-container {
+  padding: 60px 40px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.ai-loading-pulse {
+  width: 100px;
+  height: 100px;
+  border-radius: var(--radius-full);
+  background: radial-gradient(circle, rgba(var(--primary-rgb), 0.2) 0%, rgba(14, 165, 233, 0.4) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 24px;
+  animation: pulseGlow 2s infinite;
+}
+
+.ai-orb {
+  width: 50px;
+  height: 50px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--primary-color), #0ea5e9, #a855f7);
+  box-shadow: 0 0 25px rgba(var(--primary-rgb), 0.8);
+  animation: aiOrbPulse 3s infinite linear;
+}
+
+.ai-loading-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text-main);
+  margin-bottom: 8px;
+}
+
+.ai-loading-desc {
+  font-size: 14px;
+  color: var(--text-muted);
+  max-width: 500px;
+  margin-bottom: 28px;
+}
+
+.ai-progress-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+  background: var(--bg-main);
+  padding: 18px 24px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+}
+
+.ai-step {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.ai-step.active {
+  color: var(--primary-color);
+  font-weight: 600;
+}
+
+.toast-fade-out {
+  opacity: 0;
+  transform: translateY(10px);
+  transition: all 0.3s ease;
+}

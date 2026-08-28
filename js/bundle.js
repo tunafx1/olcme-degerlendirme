@@ -1867,6 +1867,67 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
   // 7. PDF RAPOR OLUŞTURUCU (LGS ETÜT MATRİSİ TABLOSU)
   // ==========================================
   class PDFService {
+    static addTextLayerToPdf(pdf, pageEl, pageWidthMm = 210, pageHeightMm = 297) {
+      if (!pageEl) return;
+      try {
+        const pageRect = pageEl.getBoundingClientRect();
+        if (!pageRect.width || !pageRect.height) return;
+
+        const scaleX = pageWidthMm / pageRect.width;
+        const scaleY = pageHeightMm / pageRect.height;
+
+        // TreeWalker ile görünür tüm metin düğümlerini tara
+        const walker = document.createTreeWalker(pageEl, NodeFilter.SHOW_TEXT, null, false);
+        let textNode;
+
+        while ((textNode = walker.nextNode())) {
+          const rawText = textNode.nodeValue;
+          if (!rawText || !rawText.trim()) continue;
+
+          const text = rawText.trim();
+          const parentEl = textNode.parentElement;
+          if (!parentEl) continue;
+
+          // Görünmeyen düğümleri atla
+          const style = window.getComputedStyle(parentEl);
+          if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") continue;
+
+          const range = document.createRange();
+          range.selectNodeContents(textNode);
+          const rects = range.getClientRects();
+
+          for (let i = 0; i < rects.length; i++) {
+            const rect = rects[i];
+            if (rect.width <= 0 || rect.height <= 0) continue;
+
+            const xMm = (rect.left - pageRect.left) * scaleX;
+            const yMm = (rect.top - pageRect.top + rect.height * 0.78) * scaleY;
+            const fontSizePt = Math.max(5, Math.min(22, (rect.height * scaleY * 72) / 25.4));
+
+            try {
+              pdf.setFontSize(fontSizePt);
+              // Invisible text layer for native text selection & copying
+              pdf.text(text, xMm, yMm, {
+                renderingMode: "invisible"
+              });
+            } catch (err) {
+              try {
+                const asciiText = text.replace(/ğ/g, "g").replace(/Ğ/g, "G")
+                                      .replace(/ü/g, "u").replace(/Ü/g, "U")
+                                      .replace(/ş/g, "s").replace(/Ş/g, "S")
+                                      .replace(/ı/g, "i").replace(/İ/g, "I")
+                                      .replace(/ö/g, "o").replace(/Ö/g, "O")
+                                      .replace(/ç/g, "c").replace(/Ç/g, "C");
+                pdf.text(asciiText, xMm, yMm, { renderingMode: "invisible" });
+              } catch (_) {}
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("[PDF Text Layer Warning]", e);
+      }
+    }
+
     static async exportToPDF(reportElementId, fileName = "Sinav_Analiz_Raporu.pdf") {
       const page1El = document.getElementById("report-page-1");
       const page2El = document.getElementById("report-page-2");
@@ -1874,7 +1935,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
 
       if (!page1El && !rootEl) return false;
 
-      showToast("Kristal netliğinde (300 DPI) kurumsal A4 PDF hazırlanıyor...", "info", 2000);
+      showToast("Seçilebilir metin katmanlı (300 DPI) kurumsal PDF hazırlanıyor...", "info", 2000);
 
       try {
         const { jsPDF } = window.jspdf || window;
@@ -1915,26 +1976,29 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         };
 
         if (page1El) {
-          // Sayfa 1: Tam A4 sayfa render (Lossless PNG)
+          // Sayfa 1: Tam A4 sayfa render (Lossless PNG) + Seçilebilir Metin Katmanı
           const c1 = await renderCanvasFromDom(page1El);
           const imgData1 = c1.toDataURL("image/png");
           pdf.addImage(imgData1, "PNG", 0, 0, 210, 297, undefined, "FAST");
+          this.addTextLayerToPdf(pdf, page1El, 210, 297);
 
-          // Sayfa 2: Tam A4 sayfa render (Lossless PNG)
+          // Sayfa 2: Tam A4 sayfa render (Lossless PNG) + Seçilebilir Metin Katmanı
           if (page2El) {
             pdf.addPage();
             const c2 = await renderCanvasFromDom(page2El);
             const imgData2 = c2.toDataURL("image/png");
             pdf.addImage(imgData2, "PNG", 0, 0, 210, 297, undefined, "FAST");
+            this.addTextLayerToPdf(pdf, page2El, 210, 297);
           }
         } else {
           const c = await renderCanvasFromDom(rootEl);
           const imgData = c.toDataURL("image/png");
           pdf.addImage(imgData, "PNG", 0, 0, 210, 297, undefined, "FAST");
+          this.addTextLayerToPdf(pdf, rootEl, 210, 297);
         }
 
         pdf.save(fileName);
-        showToast("✓ Kurumsal 2 Sayfalık PDF başarıyla indirildi!", "success");
+        showToast("✓ Gerçek seçilebilir ve kopyalanabilir metinli PDF indirildi!", "success");
         return true;
       } catch (err) {
         console.warn("[PDF Engine] jsPDF hatası, yazdırma penceresine geçiliyor:", err);
@@ -1971,10 +2035,10 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           <link rel="stylesheet" href="./css/index.css">
           <link rel="stylesheet" href="./css/report.css">
           <style>
-            @page { size: A4 portrait; margin: 8mm 10mm 8mm 10mm; }
+            @page { size: A4 portrait; margin: 0; }
             body { background: #ffffff !important; margin: 0; padding: 0; font-family: 'Inter', sans-serif; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
             .report-a4-sheet { max-width: 100% !important; width: 100% !important; margin: 0 !important; }
-            .report-a4-page { max-width: 100% !important; width: 100% !important; padding: 16px 20px !important; box-shadow: none !important; border: none !important; background: #ffffff !important; page-break-after: always !important; break-after: page !important; }
+            .report-a4-page { max-width: 100% !important; width: 100% !important; height: 297mm !important; min-height: 297mm !important; max-height: 297mm !important; padding: 14mm 16mm 10mm 16mm !important; box-sizing: border-box !important; box-shadow: none !important; border: none !important; background: #ffffff !important; page-break-after: always !important; break-after: page !important; }
             .report-table th, .report-schedule-matrix th { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
             .report-badge-title, .badge, .schedule-etut-box, .schedule-stat-box, .schedule-coaching-tip { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           </style>
@@ -2128,12 +2192,14 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
               isFirstPage = false;
               const imgData1 = await renderBulkPage(page1El);
               pdf.addImage(imgData1, "PNG", 0, 0, 210, 297, undefined, "FAST");
+              this.addTextLayerToPdf(pdf, page1El, 210, 297);
             }
 
             if (page2El) {
               pdf.addPage();
               const imgData2 = await renderBulkPage(page2El);
               pdf.addImage(imgData2, "PNG", 0, 0, 210, 297, undefined, "FAST");
+              this.addTextLayerToPdf(pdf, page2El, 210, 297);
             }
           } catch (studentErr) {
             console.warn(`[Bulk PDF] ${item.student.adSoyad} render uyarısı:`, studentErr);
@@ -5004,8 +5070,8 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             <div class="modal-header">
               <h3 class="modal-title">Öğrenci Sınav Karnesi & Raporu (${student.adSoyad})</h3>
               <div class="btn-group">
-                <button class="btn btn-sm btn-outline" onclick="window.app.printActiveReport()">Yazdır</button>
-                <button class="btn btn-sm btn-primary" onclick="window.app.downloadActiveReportPDF()">PDF İndir</button>
+                <button class="btn btn-sm btn-outline font-bold" onclick="window.app.printActiveReport()" title="Vektörel Yazıcı Çıktısı veya Vektörel PDF Olarak Kaydet">🖨️ Vektörel Yazdır / PDF</button>
+                <button class="btn btn-sm btn-primary font-bold shadow-glow" onclick="window.app.downloadActiveReportPDF()" title="Seçilebilir ve Kopyalanabilir Metin Katmanlı 300 DPI PDF İndir">📑 PDF İndir (Seçilebilir Metin)</button>
                 <button class="modal-close" onclick="window.app.closeModal('report-view-modal')">&times;</button>
               </div>
             </div>

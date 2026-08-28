@@ -586,17 +586,67 @@
 
       const preloadedPages = await Promise.all(pageTasks);
 
+      // ==========================================
+      // AŞAMA 1.5: ÇOK SAYFALI ÖĞRENCİ KARNELERİNİ BİRLEŞTİR (1 Öğrenci = 1 veya 2+ Sayfa)
+      // ==========================================
+      const studentDocuments = [];
+
+      for (let i = 0; i < preloadedPages.length; i++) {
+        const pageData = preloadedPages[i];
+        const pageText = pageData.pageStructuredText || "";
+
+        // Sayfada yeni bir öğrenci sonuç karnesi/tablosu var mı?
+        const hasScorecardTable = /01\.D\s+02\.Y|05\.N|Doğru\s+Yanlış\s+Boş\s+Net/i.test(pageText) || (/\bLGS\s+\d+\s+\d+\s+\d+/i.test(pageText) && /Öğrenci\s*(?:Adı|Puan)/i.test(pageText));
+        const isDeficitContinuationPage = /Yanlış\s*Kazanımlar|Boş\s*Kazanımlar|Yanlis\s*Kazanimlar|Bos\s*Kazanimlar/i.test(pageText);
+
+        const currentStudentName = pageData.localParsed?.ogrenci?.adSoyad || "";
+        const prevDoc = studentDocuments.length > 0 ? studentDocuments[studentDocuments.length - 1] : null;
+        const prevStudentName = prevDoc?.localParsed?.ogrenci?.adSoyad || "";
+
+        // Eğer önceki bir öğrenci belgesi varsa ve bu sayfa devam sayfasıysa (veya aynı öğrencinin devamıysa):
+        const isContinuation = prevDoc && (
+          isDeficitContinuationPage ||
+          (!hasScorecardTable) ||
+          (currentStudentName && prevStudentName && currentStudentName.toLowerCase() === prevStudentName.toLowerCase() && currentStudentName !== "ÖĞRENCİ")
+        );
+
+        if (isContinuation) {
+          // Devam sayfası: Önceki öğrenci belgesi ile birleştir
+          prevDoc.pageNumbers.push(pageData.pageNum);
+          prevDoc.pageNumDisplay = `${prevDoc.pageNumbers[0]}-${pageData.pageNum}`;
+          prevDoc.allPageItems.push(...pageData.allPageItems);
+          prevDoc.fullPageRawLines.push(...pageData.fullPageRawLines);
+          prevDoc.pageStructuredText += `\n\n=== SAYFA ${pageData.pageNum} (KAZANIMLAR VE DEVAM TABLOLARI) ===\n` + pageData.pageStructuredText;
+
+          // Birleştirilmiş tam metin ile yerel ayrıştırmayı yeniden yap
+          prevDoc.localParsed = PDFParserService.parseTurkishExamDocument(prevDoc.pageStructuredText, prevDoc.fullPageRawLines, prevDoc.allPageItems);
+        } else {
+          // Yeni öğrenci belgesi
+          studentDocuments.push({
+            studentIndex: studentDocuments.length,
+            pageNumbers: [pageData.pageNum],
+            pageNumDisplay: String(pageData.pageNum),
+            pageStructuredText: pageData.pageStructuredText,
+            fullPageRawLines: [...pageData.fullPageRawLines],
+            allPageItems: [...pageData.allPageItems],
+            localParsed: pageData.localParsed
+          });
+        }
+      }
+
+      const totalStudents = studentDocuments.length;
+
       // AI kullanılmayacaksa veya API key yoksa anında yerel sonuçları döndür
       const hasAiKey = aiConfig && AIService.checkApiKey(aiConfig.provider || "openai", aiConfig);
       if (!useAi || !hasAiKey) {
-        if (onProgress) onProgress(totalPages, totalPages, `⚡ ${totalPages} Öğrenci Yerel Olarak Tamamlandı (%100)`, 0, 100, "");
-        return preloadedPages.map((p) => ({ pageNumber: p.pageNum, ogrenci: p.localParsed.ogrenci, sinav: p.localParsed.sinav }));
+        if (onProgress) onProgress(totalStudents, totalStudents, `⚡ ${totalStudents} Öğrenci Yerel Olarak Tamamlandı (%100)`, 0, 100, "");
+        return studentDocuments.map((doc) => ({ pageNumber: doc.pageNumbers[0], pageDisplay: doc.pageNumDisplay, ogrenci: doc.localParsed.ogrenci, sinav: doc.localParsed.sinav }));
       }
 
       // ==========================================
       // AŞAMA 2: 8 EŞZAMANLI PARALEL WORKER HAVUZU (Concurrent Queue)
       // ==========================================
-      const parsedResults = new Array(totalPages);
+      const parsedResults = new Array(totalStudents);
       let completedCount = 0;
       const startTime = Date.now();
       const poolSize = Math.max(2, Math.min(concurrency, 10)); // 8 eşzamanlı paralel kanal
@@ -604,21 +654,21 @@
       let queueIndex = 0;
 
       async function worker() {
-        while (queueIndex < preloadedPages.length) {
+        while (queueIndex < studentDocuments.length) {
           if (abortSignal && abortSignal.aborted) throw new DOMException("İşlem durduruldu.", "AbortError");
 
           const currentIndex = queueIndex++;
-          const pageData = preloadedPages[currentIndex];
-          let finalParsed = pageData.localParsed;
+          const docData = studentDocuments[currentIndex];
+          let finalParsed = docData.localParsed;
 
           try {
-            const aiParsed = await AIService.extractExamDataFromPdfText(pageData.pageStructuredText, aiConfig, abortSignal);
+            const aiParsed = await AIService.extractExamDataFromPdfText(docData.pageStructuredText, aiConfig, abortSignal);
             if (aiParsed && aiParsed.ogrenci && aiParsed.sinav) {
-              finalParsed = PDFParserService.normalizeAiParsedData(aiParsed, pageData.localParsed, pageData.allPageItems, pageData.fullPageRawLines);
+              finalParsed = PDFParserService.normalizeAiParsedData(aiParsed, docData.localParsed, docData.allPageItems, docData.fullPageRawLines);
             }
           } catch (err) {
             if (err.name === "AbortError") throw err;
-            console.warn(`[PDF Parser] Sayfa ${pageData.pageNum} AI hatası (${err.message}). Yerel motora geçildi.`);
+            console.warn(`[PDF Parser] Öğrenci #${docData.pageNumDisplay} AI hatası (${err.message}). Yerel motora geçildi.`);
             if (finalParsed && finalParsed.sinav) {
               finalParsed.sinav.aiFallback = true;
               finalParsed.sinav.aiFallbackMessage = err.message;
@@ -626,7 +676,8 @@
           }
 
           parsedResults[currentIndex] = {
-            pageNumber: pageData.pageNum,
+            pageNumber: docData.pageNumbers[0],
+            pageDisplay: docData.pageNumDisplay,
             ogrenci: finalParsed.ogrenci,
             sinav: finalParsed.sinav
           };
@@ -634,9 +685,9 @@
           completedCount++;
           const elapsedSec = Math.max(0.5, (Date.now() - startTime) / 1000);
           const currentRate = completedCount / elapsedSec; // Öğrenci / saniye hızı
-          const remainingItems = totalPages - completedCount;
+          const remainingItems = totalStudents - completedCount;
           const remainingSec = remainingItems <= 0 ? 0 : Math.max(1, Math.round(remainingItems / currentRate));
-          const percent = Math.round((completedCount / totalPages) * 100);
+          const percent = Math.round((completedCount / totalStudents) * 100);
 
           const formatTimeStr = (sec) => {
             if (sec <= 0) return "0 sn";
@@ -649,11 +700,11 @@
           const remainingFormatted = formatTimeStr(remainingSec);
 
           if (onProgress) {
-            const studentName = finalParsed?.ogrenci?.adSoyad || `Öğrenci #${pageData.pageNum}`;
+            const studentName = finalParsed?.ogrenci?.adSoyad || `Öğrenci #${docData.pageNumDisplay}`;
             onProgress(
               completedCount,
-              totalPages,
-              `⚡ ${completedCount} / ${totalPages} Öğrenci Ayrıştırıldı (%${percent}) — Kalan: ${remainingFormatted}`,
+              totalStudents,
+              `⚡ ${completedCount} / ${totalStudents} Öğrenci Ayrıştırıldı (%${percent}) — Kalan: ${remainingFormatted}`,
               remainingSec,
               percent,
               studentName,
@@ -893,26 +944,31 @@
       let tarih = new Date().toISOString().split("T")[0];
       let toplamNet = 0;
 
-      const nameMatch = text.match(/Öğrenci\s*Adı[:\s]+([A-ZÇĞİÖŞÜa-zçğıöşü\s]{3,35})(?=\s+Numara|\s+Sınıf|\s+Şube|\s+Okul|\n|$)/i);
+      const nameMatch = text.match(/(?:Öğrenci\s*Adı|İsim|Adı\s*Soyadı)\s*[:=\s]+([A-ZÇĞİÖŞÜa-zçğıöşü\s]{3,35})(?=\s+Tarih|\s+Numara|\s+Sınıf|\s+Şube|\s+Okul|\s+Kitapçık|\n|$)/i);
       if (nameMatch) adSoyad = nameMatch[1].trim();
 
-      const numMatch = text.match(/Numara[:\s]+(\d+)/i);
+      if (!adSoyad || adSoyad.toLowerCase() === "öğrenci") {
+        const footerNameMatch = text.match(/^([A-ZÇĞİÖŞÜa-zçğıöşü\s]{3,35})\s+Sayfa\s+\d+/m);
+        if (footerNameMatch) adSoyad = footerNameMatch[1].trim();
+      }
+
+      const numMatch = text.match(/\bNumara[:\s]+(\d+)/i);
       if (numMatch) numara = numMatch[1].trim();
 
-      const subeMatch = text.match(/Şube[:\s]+([0-9/A-Za-z-]+)/i);
+      const subeMatch = text.match(/\bŞube[:\s]+([0-9/A-Za-z-]+)/i);
       if (subeMatch) {
         sube = subeMatch[1].trim();
         const sClass = sube.match(/(\d+)/);
         if (sClass) sinif = sClass[1];
       }
 
-      const okulMatch = text.match(/Okul[:\s]+([^\n]+?)(?=\s+Geldiği|\s+Sınav|\n|$)/i);
+      const okulMatch = text.match(/Okul[:\s]+([^\n]+?)(?=\s+Geldiği|\s+Sınav|\s+Kitapçık|\n|$)/i);
       if (okulMatch) okul = okulMatch[1].trim();
 
-      const examMatch = text.match(/Sınav\s*Adı[:\s]+([^\n]+?)(?=\s+Alan|\s+Sınav\s*Tarihi|\n|$)/i);
+      const examMatch = text.match(/(?:Sınav\s*Adı|Sınav)[:\s]+([^\n]+?)(?=\s+Kitapçık|\s+Alan|\s+Sınav\s*Tarihi|\s+Tarih|\n|$)/i);
       if (examMatch) sinavAdi = examMatch[1].trim();
 
-      const dateMatch = text.match(/Sınav\s*Tarihi[:\s]+(\d{2}[./-]\d{2}[./-]\d{4})/i);
+      const dateMatch = text.match(/(?:Sınav\s*Tarihi|Tarih)[:\s]+(\d{2}[./-]\d{2}[./-]\d{4})/i);
       if (dateMatch) {
         const parts = dateMatch[1].split(/[./-]/);
         if (parts.length === 3) tarih = `${parts[2]}-${parts[1]}-${parts[0]}`;
@@ -961,6 +1017,9 @@
         toplamNet = parseFloat(toplamMatch[4].replace(",", ".")) || 85.01;
       }
 
+      // =========================================================================
+      // ŞABLON 1: Satır Sonunda Soru / Doğru / Yanlış / % İçeren Standart Kazanımlar
+      // =========================================================================
       let currentDers = "Türkçe";
 
       for (let i = 0; i < lines.length; i++) {
@@ -1005,6 +1064,68 @@
                   basariYuzdesi: yuzde,
                   seviye: yuzde < 50 ? "kritik" : (yuzde < 85 ? "orta" : "hafif"),
                   isCategory: isCategoryHeader
+                });
+              }
+            }
+          }
+        }
+      }
+
+      // =========================================================================
+      // ŞABLON 2: "Yanlış Kazanımlar" ve "Boş Kazanımlar" Formatı (Örn: emir.pdf 2. Sayfa)
+      // Bu şablonda kazanımlar ders ders listelenir ve başlarında soru adedi yer alır (örn: 1 - Konu Adı)
+      // "Yanlış Kazanımlar" altındaki TÜMÜ -> durum: "yanlis"
+      // "Boş Kazanımlar" altındaki TÜMÜ -> durum: "bos"
+      // =========================================================================
+      let currentSectionMode = null; // "yanlis" | "bos" | null
+      let currentDeficitDers = "Türkçe";
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+
+        if (/Yanlış\s*Kazanımlar|Yanlis\s*Kazanimlar/i.test(line)) {
+          currentSectionMode = "yanlis";
+          continue;
+        } else if (/Boş\s*Kazanımlar|Bos\s*Kazanimlar/i.test(line)) {
+          currentSectionMode = "bos";
+          continue;
+        }
+
+        if (currentSectionMode) {
+          // Ders başlığı kontrolü
+          if (/^Türkçe/i.test(line) || /\bTürkçe(?:\.08|\.8)?\b/i.test(line)) currentDeficitDers = "Türkçe";
+          else if (/^Matematik/i.test(line) || /\bMatematik(?:\.08|\.8)?\b/i.test(line)) currentDeficitDers = "Matematik";
+          else if (/^Fen\s*Bilg/i.test(line) || /\bFen\s*Bil(?:gisi|imleri)(?:\.08|\.8)?\b/i.test(line)) currentDeficitDers = "Fen Bilimleri";
+          else if (/^İnkılap/i.test(line) || /\bİnkılap(?:\.08|\.8)?\b/i.test(line) || /T\.C\.\s*İnk/i.test(line)) currentDeficitDers = "T.C. İnkılap Tarihi ve Atatürkçülük";
+          else if (/^İngilizce/i.test(line) || /\bİngilizce(?:\.08|\.8)?\b/i.test(line) || /Yabancı\s*Dil/i.test(line)) currentDeficitDers = "Yabancı Dil (İngilizce)";
+          else if (/^Din\s*Kültürü/i.test(line) || /\bDin\s*Kültürü(?:\.08|\.8)?\b/i.test(line)) currentDeficitDers = "Din Kültürü ve Ahlak Bilgisi";
+
+          // Satır başında ders ve kazanım birlikte olabilir: "İngilizce.08 1 - Students will be able..."
+          let textAfterDers = line;
+          const inlineDersMatch = line.match(/^(?:Türkçe|Matematik|Fen\s*Bilgisi|Fen\s*Bilimleri|İnkılap\s*Tarihi|T\.C\.\s*İnkılap|İngilizce|Yabancı\s*Dil|Din\s*Kültürü)(?:\.08|\.8)?\s+(.+)$/i);
+          if (inlineDersMatch) {
+            textAfterDers = inlineDersMatch[1];
+          }
+
+          // "1 - Kazanım metni..." veya "3 - Metinle ilgili soruları cevaplar."
+          const deficitMatch = textAfterDers.match(/^(\d+)\s*[-–—]\s*(.+)$/);
+          if (deficitMatch) {
+            const qCount = parseInt(deficitMatch[1], 10) || 1;
+            const kName = deficitMatch[2].trim();
+
+            if (kName.length > 3 && dersSonuclariMap[currentDeficitDers]) {
+              const targetArr = dersSonuclariMap[currentDeficitDers].konular;
+              const exists = targetArr.some((k) => k.kazanimAdi === kName);
+              if (!exists) {
+                targetArr.push({
+                  kazanimAdi: kName,
+                  durum: currentSectionMode === "bos" ? "bos" : "yanlis",
+                  soruSayisi: qCount,
+                  dogru: 0,
+                  yanlis: currentSectionMode === "yanlis" ? qCount : 0,
+                  bos: currentSectionMode === "bos" ? qCount : 0,
+                  basariYuzdesi: 0,
+                  seviye: currentSectionMode === "yanlis" ? "kritik" : "orta"
                 });
               }
             }
@@ -1392,6 +1513,14 @@ GÖREVLER VE DİKKAT EDİLECEK KURALLAR:
      * basariYuzdesi: Başarı yüzdesi (0-100 arası sayı).
      * durum: Başarı yüzdesi %100 değilse veya yanlış/boş varsa "yanlis", tam doğruysa "dogru", hepsi boşsa "bos".
      * seviye: basariYuzdesi < 50 ise "kritik", 50 ile 85 arasında ise "orta", 85 ve üstü ise "hafif".
+
+4. ÖZEL ŞABLON KURALI ("Yanlış Kazanımlar" ve "Boş Kazanımlar" Formatı):
+   - Eğer belgede kazanımlar 'Yanlış Kazanımlar' veya 'Boş Kazanımlar' başlığı altında '1 - Konu Adı' veya '3 - Konu Adı' şeklinde listelenmişse (örn: 2. sayfaya taşan format):
+     * Bu belgedeki TÜM kazanımlar öğrencinin yanlış veya boş yaptığı eksik kazanımlardır.
+     * 'Yanlış Kazanımlar' altındaki her bir kazanım için: durum="yanlis", dogru=0, yanlis=soruSayisi, basariYuzdesi=0, seviye="kritik".
+     * 'Boş Kazanımlar' altındaki her bir kazanım için: durum="bos", dogru=0, yanlis=0, bos=soruSayisi, basariYuzdesi=0, seviye="orta".
+     * Satır başındaki sayı (örn: "1 - ..." veya "3 - ...") soru sayısıdır.
+     * Bu listedeki BÜTÜN kazanımları eksiksiz ilgili dersin "konular" dizisine ekle.
 
 YANIT FORMATI:
 SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtick ekleme):

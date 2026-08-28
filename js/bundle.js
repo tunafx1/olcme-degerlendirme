@@ -3388,6 +3388,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
                 </tbody>
               </table>
             </div>
+          </div>
         </div>
       `;
     }).join("");

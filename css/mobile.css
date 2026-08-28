@@ -243,9 +243,10 @@ html, body {
 
   /* Toast bildirimler */
   .toast-container {
+    top: 68px;
     right: 12px;
     left: 12px;
-    bottom: 12px;
+    bottom: auto;
   }
   .toast-item {
     min-width: unset;
@@ -692,9 +693,10 @@ html, body {
 
   /* Toast bildirimleri */
   .toast-container {
+    top: 62px;
     right: 6px;
     left: 6px;
-    bottom: 6px;
+    bottom: auto;
   }
   .toast-item {
     font-size: 11px;

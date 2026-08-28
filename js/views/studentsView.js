@@ -81,10 +81,14 @@ export function renderStudentRows(students, exams) {
     `;
   }
 
+  const state = store.getState();
+  const reports = state.reports || [];
+
   return students
     .map((s) => {
       const studentExams = exams.filter((e) => e.ogrenciId === s.id);
-      const initials = s.adSoyad
+      const studentReports = reports.filter((r) => r && (r.ogrenciId === s.id || (r.ogrenciAdSoyad && r.ogrenciAdSoyad.toLowerCase() === (s.adSoyad || "").toLowerCase())));
+      const initials = (s.adSoyad || "")
         .split(" ")
         .map((n) => n[0])
         .join("")
@@ -105,9 +109,20 @@ export function renderStudentRows(students, exams) {
         <td><span class="badge badge-secondary">${s.sinif}. Sınıf / ${s.sube}</span></td>
         <td><strong>#${s.numara || "-"}</strong></td>
         <td>
-          <span class="badge ${studentExams.length > 0 ? "badge-primary" : "badge-light"}">
-            ${studentExams.length} Sınav Kaydı
-          </span>
+          <div class="d-flex flex-column gap-1" style="align-items: flex-start;">
+            <span class="badge ${studentExams.length > 0 ? "badge-primary" : "badge-light"} cursor-pointer" onclick="window.app.openStudentProfile('${s.id}')" title="Sınav geçmişini ve profili görüntüle" style="cursor: pointer;">
+              📋 ${studentExams.length} Sınav
+            </span>
+            ${studentExams.length > 0 ? `
+              <button class="btn btn-sm btn-outline text-success border-success font-bold" onclick="event.stopPropagation(); window.app.openStudentAiReportModal('${s.id}')" title="Sınav seçerek AI Raporu aç veya yeni analiz oluştur" style="padding: 2px 8px; font-size: 11px; background: rgba(16, 185, 129, 0.08); border-radius: 99px; border-color: #10b981; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
+                🤖 AI Raporu ${studentReports.length > 0 ? `(${studentReports.length})` : ""} ↗
+              </button>
+            ` : `
+              <button class="btn btn-sm btn-ghost text-muted" onclick="event.stopPropagation(); window.app.openUploadPdfModal()" title="Sınav PDF Belgesi Yükle" style="padding: 1px 6px; font-size: 10.5px;">
+                + Sınav Yükle
+              </button>
+            `}
+          </div>
         </td>
         <td>
           <div style="font-size: 13px;">${s.veliAdSoyad || "-"}</div>

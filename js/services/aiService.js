@@ -64,54 +64,118 @@ export class AIService {
   static buildPrompt(student, exams) {
     const isMultiExam = exams.length > 1;
 
+    // Çoklu sınav varsa ortak / tekrar eden yanlış kazanımları tespit et
+    const topicStats = {};
+    exams.forEach((exam, examIdx) => {
+      (exam.dersSonuclari || []).forEach((d) => {
+        (d.konular || []).forEach((k) => {
+          const yuzde = k.basariYuzdesi !== undefined ? Number(k.basariYuzdesi) : (k.soruSayisi > 0 ? Number(((k.dogru / k.soruSayisi) * 100).toFixed(0)) : 0);
+          const isDeficient = k.durum === "yanlis" || k.durum === "bos" || k.yanlis > 0 || k.bos > 0 || yuzde < 100 || (k.soruSayisi > 0 && k.dogru < k.soruSayisi);
+          if (isDeficient && k.kazanimAdi && k.kazanimAdi.trim().length > 2) {
+            const key = `${(d.ders || "").trim().toLowerCase()}___${k.kazanimAdi.trim().toLowerCase()}`;
+            if (!topicStats[key]) {
+              topicStats[key] = {
+                ders: (d.ders || "").trim(),
+                kazanimAdi: k.kazanimAdi.trim(),
+                examIndices: new Set(),
+                examNames: [],
+                totalWrong: 0,
+                totalBos: 0
+              };
+            }
+            topicStats[key].examIndices.add(examIdx);
+            if (!topicStats[key].examNames.includes(exam.sinavAdi)) {
+              topicStats[key].examNames.push(exam.sinavAdi);
+            }
+            topicStats[key].totalWrong += Number(k.yanlis) || (k.durum === "yanlis" ? 1 : 0);
+            topicStats[key].totalBos += Number(k.bos) || (k.durum === "bos" ? 1 : 0);
+          }
+        });
+      });
+    });
+
+    const recurringTopics = Object.values(topicStats).filter((t) => t.examIndices.size >= 2);
+
     let examSummary = exams
       .map((exam, index) => {
-        let details = `\n--- SINAV ${index + 1}: ${exam.sinavAdi} (Tarih: ${exam.tarih}, Tür: ${exam.tur}, Toplam Net: ${exam.toplamNet || "Hesaplanmadı"}) ---`;
-        if (exam.dersSonuclari && exam.dersSonuclari.length > 0) {
-          exam.dersSonuclari.forEach((d) => {
-            details += `\n* Ders: ${d.ders} | Doğru: ${d.dogru}, Yanlış: ${d.yanlis}, Boş: ${d.bos}, Net: ${d.net}`;
-            if (d.konular && d.konular.length > 0) {
-              const yanlislar = d.konular.filter((k) => k.durum === "yanlis").map((k) => k.kazanimAdi);
-              const boslar = d.konular.filter((k) => k.durum === "bos").map((k) => k.kazanimAdi);
-              if (yanlislar.length > 0) details += `\n  - Yanlış Yapılan Kazanımlar: ${yanlislar.join("; ")}`;
-              if (boslar.length > 0) details += `\n  - Boş Bırakılan Kazanımlar: ${boslar.join("; ")}`;
+        let details = `\n--- SINAV ${index + 1}: ${exam.sinavAdi} (Tarih: ${exam.tarih}, Toplam Net: ${exam.toplamNet || "-"}, LGS Puanı: ${exam.puan || "-"}) ---`;
+        (exam.dersSonuclari || []).forEach((d) => {
+          details += `\n* Ders: ${d.ders} | Doğru: ${d.dogru}, Yanlış: ${d.yanlis}, Boş: ${d.bos}, Net: ${d.net}`;
+          if (d.konular && d.konular.length > 0) {
+            const eksikler = d.konular
+              .filter((k) => k.durum === "yanlis" || k.durum === "bos" || k.yanlis > 0 || k.bos > 0 || (k.basariYuzdesi !== undefined && k.basariYuzdesi < 100) || (k.soruSayisi > 0 && k.dogru < k.soruSayisi))
+              .map((k) => `${k.kazanimAdi} (Soru: ${k.soruSayisi || 1}, Doğru: ${k.dogru || 0}, Yanlış: ${k.yanlis || 0}, Başarı: %${k.basariYuzdesi !== undefined ? k.basariYuzdesi : 0})`);
+            if (eksikler.length > 0) {
+              details += `\n  - Bu Dersteki TÜM Eksik/Yanlış Kazanımlar (${eksikler.length} adet):\n    • ` + eksikler.join("\n    • ");
             }
-          });
-        }
+          }
+        });
         return details;
       })
       .join("\n");
 
-    return `Sen uzman bir Eğitim Koçu, Rehberlik Uzmanı ve Ölçme Değerlendirme Analistisin.
-Aşağıda bilgileri ve sınav sonuçları verilen öğrenci için kapsamlı, pedagojik, teşvik edici ve bilimsel bir eksik analizi ve haftalık ders çalışma programı hazırla.
+    let recurringWarningPrompt = "";
+    if (isMultiExam && recurringTopics.length > 0) {
+      recurringWarningPrompt = `\n🚨 DİKKAT: 2 VEYA DAHA FAZLA SINAVDA TEKRAR EDEN (KRONİK) YANLIŞ KAZANIMLAR (${recurringTopics.length} adet):
+(Bu kazanımlar öğrencinin birden fazla sınavda peş peşe yanlış yaptığı ve henüz öğrenemediği kalıcı eksiklerdir!)
+${recurringTopics.map((t) => `• [${t.ders}] ${t.kazanimAdi} (${t.examIndices.size} sınavda da yanlış yapıldı: ${t.examNames.join(", ")})`).join("\n")}
+`;
+    }
 
-ÖĞRENCİ BİLGİLERİ:
-- Adı Soyadı: ${student.adSoyad}
-- Sınıf / Şube: ${student.sinif}. Sınıf (${student.sube})
-- Öğrenci No: ${student.numara}
+    return `Sen Türkiye'nin en seçkin LGS Eğitim Koçu, Rehberlik ve Ölçme Değerlendirme Uzmanısın.
+Aşağıda sınav sonuç karnesi verilen 8. sınıf öğrencisi için eksik analizini yap ve LGS mantığına uygun 7 günlük profesyonel bir Haftalık Çalışma Çizelgesi Tablosu (Etüt Matrisi) hazırla.
 
-SINAV VERİLERİ:
+ÖĞRENCİ:
+- Adı Soyadı: ${student.adSoyad} (${student.sinif}. Sınıf / ${student.sube} - No: ${student.numara})
+
+SINAV VERİLERİ VE KAZANIM ANALİZİ:
 ${examSummary}
+${recurringWarningPrompt}
+${isMultiExam ? "NOT: Birden fazla sınav seçilmiştir. Sınavlar arasındaki net artış/azalışlarını, gelişim seyrini ve özellikle birden fazla sınavda tekrar eden ortak/kronik yanlış kazanımları 'gelisimAnalizi' alanında detaylıca karşılaştır." : ""}
 
-${isMultiExam ? "NOT: Birden fazla sınav seçilmiştir. Sınavlar arasındaki net artış/azalışlarını, gelişim seyrini ve kalıcı eksikleri 'gelisimAnalizi' alanında detaylandır." : ""}
-
-GÖREVLERİN:
-1. Öğrencinin sınav sonuçlarını analiz ederek eksik olduğu konu ve kazanımları önem derecesine göre grupla (kritik, orta, hafif). Her biri için kısa ve net bir çalışma önerisi belirt.
-2. Öğrencinin genel performansını değerlendiren, rehberlik ve psikolojik danışmanlık diline uygun, motive edici, veli ve öğrenciye hitap eden yapıcı bir 'genelYorum' metni yaz.
-3. Tespit edilen eksik konulara öncelik veren, Pazartesi'den Pazar'a kadar gün gün, saat aralıklı, ders, konu ve hedef soru sayısını içeren kişiselleştirilmiş 10-14 maddelik 'calismaProgrami' oluştur.
+KURALLAR:
+1. Öğrencinin yüzdelik başarısı %100 olmayan (eksik olan) TÜM kazanımlarını 'eksikKonular' listesine önem ve öncelik sırasına göre ekle.
+   ${recurringTopics.length > 0 ? `- 🚨 ÇOK ÖNEMLİ: 2+ sınavda tekrar eden ortak yanlış kazanımları 'eksikKonular' listesinin EN BAŞINA ekle. Bu kazanımlara "isRecurring": true, "recurringCount": ${recurringTopics.length}, "recurringExams": ["Sınav 1 Adı", "Sınav 2 Adı"], "seviye": "kritik" ve "oneri": "🚨 Tekrarlayan Yanlış Telafisi: ..." olarak ata.` : ""}
+2. Öğrenciyi motive eden, güçlü derslerini takdir eden, eksiklere nokta atışı rehberlik yapan profesyonel bir 'genelYorum' yaz.
+3. ${isMultiExam ? "'gelisimAnalizi' alanında sınavlar arasındaki net artış/azalışlarını, hangi derslerde yükseliş/düşüş olduğunu ve özellikle aynı kazanımlarda yapılan tekrarlayan yanlışları derinlemesine değerlendir." : ""}
+4. 'haftalikTablo' içinde Pazartesi'den Pazar'a kadar 7 GÜNÜN HER BİRİ İÇİN 3 Ayrı Etüt (1. Etüt: Konu Tekrarı & Eksik Telafi, 2. Etüt: Yeni Nesil Soru Çözümü, 3. Etüt: Günlük Tekrar / Paragraf / Hata Defteri) oluştur.
+   - 1. Etütler mutlaka öğrencinin %100 altında kalan ${recurringTopics.length > 0 ? "ve özellikle birden fazla sınavda tekrar eden ortak" : ""} eksik kazanımlarına odaklanmalıdır.
+   - Cumartesi Sabahı: 90 Soruluk Tam LGS Denemesi ve öğleden sonra Video Çözüm Analizi olmalı.
+   - Pazar Günü: Hata Defteri Tekrarı ve dinlenme olmalı.
 
 YANIT FORMATI:
-Lütfen yanıtını SADECE geçerli bir JSON nesnesi olarak ver (Markdown backtick dışında ekstra hiçbir açıklama metni yazma).
-JSON Formatı:
+SADECE aşağıdaki JSON nesnesi formatında yanıt ver:
 {
   "eksikKonular": [
-    { "ders": "Matematik", "konu": "Doğrusal Denklemler", "seviye": "kritik", "oneri": "Eğim ve grafik çizim odaklı 40 soru" }
+    {
+      "ders": "Türkçe",
+      "konu": "Bağlamdan Kelime ve Sözcükte Anlam Tahmini",
+      "seviye": "kritik",
+      "isRecurring": true,
+      "recurringCount": 2,
+      "recurringExams": ["1. Deneme", "2. Deneme"],
+      "oneri": "Konu özeti + 35 yeni nesil anlam sorusu ile acil telafi"
+    }
   ],
   "genelYorum": "Metin...",
-  "gelisimAnalizi": "${isMultiExam ? "Sınavlar arası karşılaştırma ve trend yorumu..." : ""}",
-  "calismaProgrami": [
-    { "gun": "Pazartesi", "saat": "17:30 - 18:45", "ders": "Matematik", "konu": "Doğrusal Denklemler Konu Tekrarı", "hedefSoru": 30 }
-  ]
+  "gelisimAnalizi": "${isMultiExam ? "Sınavlar arası karşılaştırma, net değişimleri ve kronik kazanım değerlendirmesi..." : ""}",
+  "haftalikTablo": [
+    {
+      "gun": "Pazartesi",
+      "gunlukOdak": "Türkçe & Matematik",
+      "etut1": { "saat": "17:30 - 18:30", "ders": "Türkçe", "konu": "🎯 Bağlamdan Anlam & Söz Öbeği Pratiği", "hedef": "35 Soru" },
+      "etut2": { "saat": "18:45 - 19:45", "ders": "Matematik", "konu": "Çarpanlar ve Katlar / EBOB-EKOK", "hedef": "30 Soru" },
+      "etut3": { "saat": "20:00 - 20:45", "ders": "Paragraf & Okuma", "konu": "20 Yeni Nesil Paragraf + Kitap (20 dk)", "hedef": "20 Soru" },
+      "gunlukToplamSoru": 85
+    }
+  ],
+  "haftalikOzet": {
+    "toplamSoruHedefi": "580 - 650 Soru",
+    "toplamEtutSuresi": "21.5 Saat",
+    "denemeSayisi": "1 Tam LGS Denemesi + 2 Branş Denemesi",
+    "kitapOkuma": "120 dk Kitap + 100 Paragraf",
+    "kocTavsiyesi": "Hafta boyu denemelerde ve testlerde yanlış yapılan her soru 'Hata Defteri'ne yapıştırılmalı ve pazar günü mutlaka yeniden çözülmelidir."
+  }
 }`;
   }
 
@@ -361,128 +425,239 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     const latestExam = exams[exams.length - 1];
     const firstExam = exams[0];
 
-    const eksikKonular = [];
-    const dersBasariMap = {};
+    // 1. ADIM: Sınavlardaki tüm eksik kazanımları ve sınav bazında tekrar sıklığını tara
+    const topicStats = {};
 
-    // Sınavlardaki yanlış ve boşları topla
-    exams.forEach((exam) => {
+    (exams || []).forEach((exam, examIdx) => {
       (exam.dersSonuclari || []).forEach((d) => {
-        if (!dersBasariMap[d.ders]) {
-          dersBasariMap[d.ders] = { dogru: 0, yanlis: 0, bos: 0, net: 0, count: 0, konular: [] };
-        }
-        dersBasariMap[d.ders].dogru += Number(d.dogru) || 0;
-        dersBasariMap[d.ders].yanlis += Number(d.yanlis) || 0;
-        dersBasariMap[d.ders].bos += Number(d.bos) || 0;
-        dersBasariMap[d.ders].net += Number(d.net) || 0;
-        dersBasariMap[d.ders].count++;
+        let hasWrongGain = false;
+        (d.konular || []).forEach((k) => {
+          const yuzde = k.basariYuzdesi !== undefined ? Number(k.basariYuzdesi) : (k.soruSayisi > 0 ? Number(((k.dogru / k.soruSayisi) * 100).toFixed(0)) : 0);
+          const isDeficient = k.durum === "yanlis" || k.durum === "bos" || k.yanlis > 0 || k.bos > 0 || yuzde < 100 || (k.soruSayisi > 0 && k.dogru < k.soruSayisi);
 
-        if (d.konular && d.konular.length > 0) {
-          d.konular.forEach((k) => {
-            if (k.durum === "yanlis" || k.durum === "bos") {
-              dersBasariMap[d.ders].konular.push({
-                konu: k.kazanimAdi,
-                durum: k.durum,
-                ders: d.ders
-              });
+          if (isDeficient && k.kazanimAdi && k.kazanimAdi.trim().length > 2) {
+            hasWrongGain = true;
+            const cleanTopic = k.kazanimAdi.trim();
+            const uniqueKey = `${(d.ders || "").toLowerCase()}___${cleanTopic.toLowerCase()}`;
+
+            if (!topicStats[uniqueKey]) {
+              topicStats[uniqueKey] = {
+                ders: d.ders,
+                konu: cleanTopic,
+                examIndices: new Set(),
+                examNames: [],
+                totalWrong: 0,
+                totalBos: 0,
+                yuzde: yuzde
+              };
             }
-          });
+            topicStats[uniqueKey].examIndices.add(examIdx);
+            if (!topicStats[uniqueKey].examNames.includes(exam.sinavAdi)) {
+              topicStats[uniqueKey].examNames.push(exam.sinavAdi);
+            }
+            topicStats[uniqueKey].totalWrong += Number(k.yanlis) || 1;
+            topicStats[uniqueKey].totalBos += Number(k.bos) || 0;
+          }
+        });
+
+        // Eğer derste yanlış veya boş var ama kazanım listesi boşsa
+        const neededMissingCount = (d.yanlis || 0) + (d.bos > 0 ? 1 : 0);
+        if (neededMissingCount > 0 && !hasWrongGain) {
+          const cleanTopic = `${d.ders}: Temel Soru & Kavram Analizi`;
+          const uniqueKey = `${(d.ders || "").toLowerCase()}___${cleanTopic.toLowerCase()}`;
+
+          if (!topicStats[uniqueKey]) {
+            topicStats[uniqueKey] = {
+              ders: d.ders,
+              konu: cleanTopic,
+              examIndices: new Set(),
+              examNames: [],
+              totalWrong: 0,
+              totalBos: 0,
+              yuzde: 0
+            };
+          }
+          topicStats[uniqueKey].examIndices.add(examIdx);
+          if (!topicStats[uniqueKey].examNames.includes(exam.sinavAdi)) {
+            topicStats[uniqueKey].examNames.push(exam.sinavAdi);
+          }
+          topicStats[uniqueKey].totalWrong += Number(d.yanlis) || 1;
         }
       });
     });
 
-    // Eksik konuları önem derecesine göre belirle
-    Object.keys(dersBasariMap).forEach((dersAdi) => {
-      const info = dersBasariMap[dersAdi];
-      const avgNet = info.net / info.count;
-      const wrongRatio = info.yanlis / Math.max(1, info.dogru + info.yanlis + info.bos);
+    // 2. ADIM: 2 veya daha fazla sınavda tekrar eden ortak yanlışları (kronik eksikleri) ayıkla
+    const recurringTopics = Object.values(topicStats).filter((t) => t.examIndices.size >= 2);
+    const singleTopics = Object.values(topicStats).filter((t) => t.examIndices.size === 1);
 
-      if (info.konular.length > 0) {
-        info.konular.forEach((k, idx) => {
-          let seviye = "orta";
-          let oneri = "Kavram tekrarı ve 30 pekiştirme sorusu";
+    const eksikler = [];
 
-          if (k.durum === "yanlis" && (wrongRatio > 0.3 || idx === 0)) {
-            seviye = "kritik";
-            oneri = "Özet konu anlatım föyü + video soru çözümü + 45 yeni nesil soru";
-          } else if (k.durum === "bos") {
-            seviye = "orta";
-            oneri = "Temel kavram haritası çıkarma ve 25 rehber soru çözümü";
-          } else {
-            seviye = "hafif";
-            oneri = "Haftalık tarama testlerinde bu kazanıma öncelik verilmesi";
-          }
-
-          eksikKonular.push({
-            ders: k.ders,
-            konu: k.konu,
-            seviye: seviye,
-            oneri: oneri
-          });
-        });
-      } else {
-        // Kazanımsız sınav veya eşleşmemiş ders ise (yanlış veya boş varsa MUTLAKA eksik konu üret)
-        if (info.yanlis > 0 || info.bos > 0 || wrongRatio > 0.1 || avgNet < 10) {
-          eksikKonular.push({
-            ders: dersAdi,
-            konu: `${dersAdi}: Eksik Soru & Kavram Analizi`,
-            seviye: (info.yanlis > 1 || wrongRatio > 0.25) ? "kritik" : "orta",
-            oneri: `Haftalık ${dersAdi} dersine ayrılan sürenin artırılması ve kademeli pekiştirme testleri çözümü`
-          });
-        }
-      }
+    // Önce 2+ sınavda tekrar eden ortak yanlışları en üste ekle (Kritik Öncelikli)
+    recurringTopics.forEach((t) => {
+      eksikler.push({
+        ders: t.ders,
+        konu: t.konu,
+        isRecurring: true,
+        recurringCount: t.examIndices.size,
+        recurringExams: t.examNames,
+        seviye: "kritik",
+        yuzde: t.yuzde,
+        dogru: 0,
+        yanlis: t.totalWrong,
+        bos: t.totalBos,
+        oneri: `🚨 ${t.examIndices.size} Sınavda Tekrar Eden Kronik Eksik: Konu özet föyü + video soru çözümü + 45 yeni nesil soru ile acil telafi`
+      });
     });
 
-    // En fazla 7-8 kritik/orta eksik göster
-    const sortedEksikler = eksikKonular
-      .sort((a, b) => (a.seviye === "kritik" ? -1 : 1))
-      .slice(0, 7);
+    // Tekil sınav eksiklerini ekle
+    singleTopics.forEach((t) => {
+      eksikler.push({
+        ders: t.ders,
+        konu: t.konu,
+        isRecurring: false,
+        recurringCount: 1,
+        recurringExams: t.examNames,
+        seviye: t.yuzde < 50 ? "kritik" : (t.yuzde < 85 ? "orta" : "hafif"),
+        yuzde: t.yuzde,
+        dogru: 0,
+        yanlis: t.totalWrong,
+        bos: t.totalBos,
+        oneri: `${t.ders} dersinde kavram tekrarı ve ${t.yuzde === 0 ? "35" : "25"} pekiştirme sorusu (${t.examNames[0] || "Deneme"})`
+      });
+    });
 
-    // Genel Yorum Oluştur
+    if (eksikler.length === 0) {
+      eksikler.push(
+        { ders: "Türkçe", konu: "Yeni Nesil Paragraf ve Muhakeme", seviye: "hafif", oneri: "Günlük 25 paragraf ve deneme çözümü" },
+        { ders: "Matematik", konu: "Yeni Nesil Beceri Temelli Sorular", seviye: "hafif", oneri: "Günde 30 ileri düzey soru" }
+      );
+    }
+
+    // 3. ADIM: Genel Yorum ve Gelişim Analizi Metinlerini Üret
     let genelYorum = `Sevgili ${student.adSoyad}, `;
     if (isMulti) {
-      const netFark = (latestExam.toplamNet || 0) - (firstExam.toplamNet || 0);
+      const netFark = (Number(latestExam.toplamNet) || 0) - (Number(firstExam.toplamNet) || 0);
+      genelYorum += `seçilen **${exams.length} sınavın** (${firstExam.sinavAdi} ➔ ${latestExam.sinavAdi}) sonuçları karşılaştırmalı olarak analiz edilmiştir. `;
       if (netFark >= 0) {
-        genelYorum += `uygulanan ${exams.length} sınav boyunca gösterdiğin performans incelendiğinde netlerinde **+${netFark.toFixed(2)} netlik istikrarlı bir yükseliş** kaydedildiği görülmektedir. Özellikle temel kavramları kavramadaki kararlılığın ve soru çözme hızın dikkat çekmektedir. `;
+        genelYorum += `Süreç içinde netlerinde **+${netFark.toFixed(2)} netlik artış** kaydedildiği görülmektedir. `;
       } else {
-        genelYorum += `yapılan son deneme sınavlarında dalgalanmalar gözlemlenmiştir. Bu durum konu eksiklerinden ziyade sınav anı odaklanması ve soru analiz sürecindeki acelecilikten kaynaklanmaktadır. `;
+        genelYorum += `Sınavlar arasında **${netFark.toFixed(2)} netlik dalgalanma** gözlenmiştir. `;
+      }
+      if (recurringTopics.length > 0) {
+        genelYorum += `Yapılan analizde **${recurringTopics.length} adet kazanımda her iki sınavda da hata tekrarı yapıldığı (kronik eksik)** belirlenmiştir. Bu ortak eksikler aşağıdaki 7 günlük çalışma tablosunda 1. Etütlere mutlak öncelikle atanmıştır.`;
+      } else {
+        genelYorum += `Sınavlar arasında hata tekrarı yapılan ortak kazanım bulunmamakta olup, yeni eksiklerin telafisine odaklanılmıştır.`;
       }
     } else {
-      genelYorum += `"${latestExam.sinavAdi}" sonuçların titizlikle incelenmiştir. Mevcut başarı ortalaman hedeflerine ulaşmak için güçlü bir temele sahip olduğunu göstermektedir. `;
+      genelYorum += `"${latestExam.sinavAdi}" sınav sonucun değerlendirilmiştir. `;
+      if (latestExam.toplamNet && latestExam.toplamNet >= 80) {
+        genelYorum += `Elde ettiğin **${latestExam.toplamNet} netlik yüksek başarı** ve puan performansın harikadır. `;
+      } else {
+        genelYorum += `Elde ettiğin **${latestExam.toplamNet || 70} netlik performans** düzenli çalışma ile daha da yükselecektir. `;
+      }
+      genelYorum += `Karnende yüzdelik başarısı %100'ün altında kalan ${eksikler.length} adet eksik kazanım tespit edilmiştir. Aşağıdaki 7 günlük çalışma çizelgesi doğrudan bu eksik kazanımlarını telafi etmek üzere hazırlanmıştır.`;
     }
 
-    genelYorum += `Tespit edilen eksik kazanımlara yönelik hazırlanan haftalık çalışma programına ve soru hedeflerine özenle uyduğun takdirde bir sonraki sınavda çok daha yüksek bir başarı çıtasına ulaşacağın kesindir. Başarılarının devamını dileriz.`;
-
-    // Gelişim Analizi Metni (Çoklu Sınav için)
     let gelisimAnalizi = "";
     if (isMulti) {
-      gelisimAnalizi = `İlk sınav (${firstExam.sinavAdi}) toplam neti ${firstExam.toplamNet || "-"} iken, son sınavda (${latestExam.sinavAdi}) net ${latestExam.toplamNet || "-"} olarak gerçekleşmiştir. Süreç içinde yanlış yapılan konuların bir kısmında belirgin telafi sağlanmış, kalan eksikler ise hazırlanan çalışma programına öncelikli olarak dağıtılmıştır.`;
+      const netFark = (Number(latestExam.toplamNet) || 0) - (Number(firstExam.toplamNet) || 0);
+      const puan1 = Number(String(firstExam.puan || "").replace(",", ".")) || 0;
+      const puan2 = Number(String(latestExam.puan || "").replace(",", ".")) || 0;
+      const puanDiff = puan1 > 0 && puan2 > 0 ? (puan2 - puan1).toFixed(2) : null;
+
+      gelisimAnalizi = `📊 **Genel Gelişim Seyri:** ${firstExam.sinavAdi} (${firstExam.toplamNet || "-"} Net) ➔ ${latestExam.sinavAdi} (${latestExam.toplamNet || "-"} Net) [Toplam Net Değişimi: ${netFark >= 0 ? "+" : ""}${netFark.toFixed(2)} Net${puanDiff !== null ? ` | Puan Değişimi: ${Number(puanDiff) >= 0 ? '+' : ''}${puanDiff} Puan` : ''}].\n`;
+      if (recurringTopics.length > 0) {
+        gelisimAnalizi += `\n🚨 **Tekrarlayan (Kronik) Kazanım Hataları:** Seçilen ${exams.length} sınavın çapraz analizinde **${recurringTopics.length} adet kazanımda** hata tekrarı saptanmıştır. Özellikle ${recurringTopics.map((t) => `"${t.ders}: ${t.konu}" (${t.examNames.join(" & ")})`).slice(0, 3).join(", ")} konuları öğrencinin kalıcı telafi gerektiren risk alanlarıdır.\n`;
+        gelisimAnalizi += `\n💡 **Rehberlik & İyileştirme Stratejisi:** Tekrarlayan yanlış yapılan bu kazanımlar, soru çözüm föyleri ve yanlış soru defteri (Hata Defteri) yöntemiyle acilen pekiştirilmelidir. Öğrencinin haftalık çalışma çizelgesindeki 1. Etütler bu eksiklere göre kurgulanmıştır.`;
+      } else {
+        gelisimAnalizi += `\n✓ **Başarı Seyri:** Sınavlar arasında peş peşe hata yapılan ortak kronik bir eksik kazanım saptanmamıştır. Yeni nesil soru pratikleriyle mevcut başarı korunmalıdır.`;
+      }
     }
 
-    // Haftalık Çalışma Programı
-    const calismaProgrami = [
-      { gun: "Pazartesi", saat: "17:30 - 18:45", ders: sortedEksikler[0]?.ders || "Matematik", konu: sortedEksikler[0]?.konu || "Konu Tekrarı & Pekiştirme", hedefSoru: 30 },
-      { gun: "Pazartesi", saat: "19:00 - 20:00", ders: "Türkçe", konu: "Paragrafta Anlam ve Hızlı Okuma Egzersizleri", hedefSoru: 35 },
-      { gun: "Salı", saat: "17:30 - 18:45", ders: sortedEksikler[1]?.ders || "Fen Bilimleri", konu: sortedEksikler[1]?.konu || "Kavram Haritası & Video Çözüm", hedefSoru: 30 },
-      { gun: "Salı", saat: "19:00 - 20:00", ders: "İngilizce", konu: "Hedef Ünite Kelime Kartları & Diyalog Tamamlama", hedefSoru: 25 },
-      { gun: "Çarşamba", saat: "17:30 - 19:00", ders: sortedEksikler[2]?.ders || "Matematik", konu: sortedEksikler[2]?.konu || "Yeni Nesil Problem Pratiği", hedefSoru: 35 },
-      { gun: "Çarşamba", saat: "19:15 - 20:15", ders: "T.C. İnkılap Tarihi", konu: "Dönem Olayları ve Harita Yorumlama Testi", hedefSoru: 30 },
-      { gun: "Perşembe", saat: "17:30 - 18:45", ders: sortedEksikler[3]?.ders || "Fen Bilimleri", konu: sortedEksikler[3]?.konu || "Deney Föyleri ve Karma Test Çözümü", hedefSoru: 35 },
-      { gun: "Perşembe", saat: "19:00 - 20:00", ders: "Matematik", konu: "Hata Defterindeki Soruların Yeniden Çözümü", hedefSoru: 25 },
-      { gun: "Cuma", saat: "17:30 - 19:00", ders: "Türkçe & Din K.", konu: "Sözel Mantık Çıkarımları ve Branş Denemesi", hedefSoru: 40 },
-      { gun: "Cumartesi", saat: "10:00 - 12:30", ders: "Genel Deneme", konu: "Gerçek Sınav Provası (Süre Tutularak Tam Deneme)", hedefSoru: 90 },
-      { gun: "Cumartesi", saat: "14:30 - 16:00", ders: "Analiz & Telafi", konu: "Deneme Sınavındaki Hatalı/Boş Soruların İncelenmesi", hedefSoru: 0 },
-      { gun: "Pazar", saat: "11:00 - 13:00", ders: "Haftalık Değerlendirme", konu: "Haftalık Soru Hedeflerinin Kontrolü & Dinlenme", hedefSoru: 20 }
+    // 4. ADIM: 7 Günlük LGS Etüt Matrisi Tablosu (Öncelikli Eksik Kazanımlarla)
+    const e1 = eksikler[0] ? `${eksikler[0].ders}: 🎯 ${eksikler[0].konu}` : "Türkçe: 🎯 Paragraf ve Sözcükte Anlam";
+    const e2 = eksikler[1] ? `${eksikler[1].ders}: 🎯 ${eksikler[1].konu}` : "Fen Bilimleri: 🎯 Basınç ve Deneyleri";
+    const e3 = eksikler[2] ? `${eksikler[2].ders}: 🎯 ${eksikler[2].konu}` : "Fen Bilimleri: 🎯 Periyodik Sistem ve Madde";
+    const e4 = eksikler[3] ? `${eksikler[3].ders}: 🎯 ${eksikler[3].konu}` : "Din Kültürü: 🎯 Zekât ve Sadaka İbadeti";
+    const e5 = eksikler[4] ? `${eksikler[4].ders}: 🎯 ${eksikler[4].konu}` : "Matematik: 🎯 Çarpanlar ve Katlar";
+
+    const haftalikTablo = [
+      {
+        gun: "Pazartesi",
+        gunlukOdak: (eksikler[0]?.ders || "Türkçe") + " & Matematik",
+        etut1: { saat: "17:30 - 18:30", ders: eksikler[0]?.ders || "Türkçe", konu: e1, hedef: "35 Soru" },
+        etut2: { saat: "18:45 - 19:45", ders: "Matematik", konu: "Çarpanlar ve Katlar / EBOB-EKOK", hedef: "30 Soru" },
+        etut3: { saat: "20:00 - 20:45", ders: "Paragraf & Okuma", konu: "20 Yeni Nesil Paragraf + Kitap (20 dk)", hedef: "20 Soru" },
+        gunlukToplamSoru: 85
+      },
+      {
+        gun: "Salı",
+        gunlukOdak: (eksikler[1]?.ders || "Fen Bilimleri") + " & İngilizce",
+        etut1: { saat: "17:30 - 18:30", ders: eksikler[1]?.ders || "Fen Bilimleri", konu: e2, hedef: "35 Soru" },
+        etut2: { saat: "18:45 - 19:45", ders: "İnkılap & İngilizce", konu: "İnkılap İlkeleri & İngilizce Reading", hedef: "30 Soru" },
+        etut3: { saat: "20:00 - 20:45", ders: "Tekrar & Paragraf", konu: "Günlük Hata Kontrolü + 20 Paragraf", hedef: "20 Soru" },
+        gunlukToplamSoru: 85
+      },
+      {
+        gun: "Çarşamba",
+        gunlukOdak: (eksikler[2]?.ders || "Fen Bilimleri") + " & Matematik",
+        etut1: { saat: "17:30 - 18:30", ders: eksikler[2]?.ders || "Fen Bilimleri", konu: e3, hedef: "30 Soru" },
+        etut2: { saat: "18:45 - 19:45", ders: "Matematik", konu: "Üslü ve Kareköklü İfadeler Yeni Nesil", hedef: "35 Soru" },
+        etut3: { saat: "20:00 - 20:45", ders: "Kitap & Tekrar", konu: "Kitap Okuma (30 dk) + Hata Defteri", hedef: "15 Soru" },
+        gunlukToplamSoru: 80
+      },
+      {
+        gun: "Perşembe",
+        gunlukOdak: (eksikler[3]?.ders || "Din Kültürü") + " & Türkçe",
+        etut1: { saat: "17:30 - 18:30", ders: eksikler[3]?.ders || "Din Kültürü", konu: e4, hedef: "30 Soru" },
+        etut2: { saat: "18:45 - 19:45", ders: "Türkçe", konu: "Cümlenin Ögeleri & Fiilimsiler", hedef: "35 Soru" },
+        etut3: { saat: "20:00 - 20:45", ders: "Paragraf", konu: "20 Yeni Nesil Paragraf Çözümü", hedef: "20 Soru" },
+        gunlukToplamSoru: 85
+      },
+      {
+        gun: "Cuma",
+        gunlukOdak: "Branş Denemeleri & Telafi",
+        etut1: { saat: "17:30 - 18:30", ders: "Sayısal Branş", konu: e5 || "Matematik + Fen Branş Denemesi", hedef: "40 Soru" },
+        etut2: { saat: "18:45 - 19:45", ders: "Sözel Branş", konu: "Türkçe + Sosyal Branş Denemesi", hedef: "40 Soru" },
+        etut3: { saat: "20:00 - 20:45", ders: "Deneme Analizi", konu: "Hatalı Soruların Çözüm İncelemesi", hedef: "0 Soru" },
+        gunlukToplamSoru: 80
+      },
+      {
+        gun: "Cumartesi",
+        gunlukOdak: "Tam LGS Deneme Sınavı",
+        etut1: { saat: "09:30 - 11:45", ders: "Genel Deneme", konu: "Süre Tutularak 90 Soruluk Tam LGS Denemesi", hedef: "90 Soru" },
+        etut2: { saat: "13:30 - 15:00", ders: "Deneme Analizi", konu: "Yanlış/Boş Soruların Video Çözümleri", hedef: "20 Soru" },
+        etut3: { saat: "15:30 - 17:00", ders: "Özel Telafi", konu: "Haftanın %100 Altında Kalan Eksik Kazanımları Karma Test", hedef: "40 Soru" },
+        gunlukToplamSoru: 150
+      },
+      {
+        gun: "Pazar",
+        gunlukOdak: "Haftalık Tekrar & Dinlenme",
+        etut1: { saat: "10:30 - 12:00", ders: "Hata Defteri", konu: "Hafta Boyunca Yanlış Yapılan Soruların Tekrarı", hedef: "30 Soru" },
+        etut2: { saat: "12:30 - 14:00", ders: "Genel Tekrar", konu: "Haftalık Soru Hedefi Kontrolü & Değerlendirme", hedef: "20 Soru" },
+        etut3: { saat: "14:00 Sonrası", ders: "Serbest Zaman", konu: "Zihinsel Dinlenme, Aile ve Sosyal Zaman", hedef: "0 Soru" },
+        gunlukToplamSoru: 50
+      }
     ];
 
+    const kocTavsiyesi = recurringTopics.length > 0
+      ? `Özellikle ${recurringTopics.length} adet sınavlar arası tekrar eden ortak eksik kazanım (${recurringTopics[0].ders} - ${recurringTopics[0].konu} vb.) acil telafi edilmeli, hata defterindeki sorular pazar günü mutlaka sıfır hata ile yeniden çözülmelidir.`
+      : "Hafta boyu denemelerde ve testlerde yanlış yapılan her soru 'Hata Defteri'ne yapıştırılmalı ve pazar günü mutlaka yeniden çözülmelidir.";
+
     return {
-      eksikKonular: sortedEksikler.length > 0 ? sortedEksikler : [
-        { ders: "Matematik", konu: "Genel Problem Çözümü", seviye: "orta", oneri: "Haftalık 50 soru çözümü" },
-        { ders: "Türkçe", konu: "Paragraf Yorumlama", seviye: "hafif", oneri: "Günlük 20 paragraf sorusu" }
-      ],
+      eksikKonular: eksikler,
       genelYorum,
       gelisimAnalizi,
-      calismaProgrami,
+      haftalikTablo,
+      haftalikOzet: {
+        toplamSoruHedefi: "565 Soru",
+        toplamEtutSuresi: "21.5 Saat",
+        denemeSayisi: "1 Tam LGS Denemesi + 2 Branş Denemesi",
+        kitapOkuma: "120 dk Kitap + 100 Paragraf",
+        kocTavsiyesi
+      },
       _isSimulated: true
     };
   }
+}
 }

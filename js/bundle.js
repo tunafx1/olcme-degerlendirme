@@ -1435,6 +1435,39 @@
 
     static buildPrompt(student, exams) {
       const isMultiExam = exams.length > 1;
+
+      // Çoklu sınav varsa ortak / tekrar eden yanlış kazanımları tespit et
+      const topicStats = {};
+      exams.forEach((exam, examIdx) => {
+        (exam.dersSonuclari || []).forEach((d) => {
+          (d.konular || []).forEach((k) => {
+            const yuzde = k.basariYuzdesi !== undefined ? Number(k.basariYuzdesi) : (k.soruSayisi > 0 ? Number(((k.dogru / k.soruSayisi) * 100).toFixed(0)) : 0);
+            const isDeficient = k.durum === "yanlis" || k.durum === "bos" || k.yanlis > 0 || k.bos > 0 || yuzde < 100 || (k.soruSayisi > 0 && k.dogru < k.soruSayisi);
+            if (isDeficient && k.kazanimAdi && k.kazanimAdi.trim().length > 2) {
+              const key = `${(d.ders || "").trim().toLowerCase()}___${k.kazanimAdi.trim().toLowerCase()}`;
+              if (!topicStats[key]) {
+                topicStats[key] = {
+                  ders: (d.ders || "").trim(),
+                  kazanimAdi: k.kazanimAdi.trim(),
+                  examIndices: new Set(),
+                  examNames: [],
+                  totalWrong: 0,
+                  totalBos: 0
+                };
+              }
+              topicStats[key].examIndices.add(examIdx);
+              if (!topicStats[key].examNames.includes(exam.sinavAdi)) {
+                topicStats[key].examNames.push(exam.sinavAdi);
+              }
+              topicStats[key].totalWrong += Number(k.yanlis) || (k.durum === "yanlis" ? 1 : 0);
+              topicStats[key].totalBos += Number(k.bos) || (k.durum === "bos" ? 1 : 0);
+            }
+          });
+        });
+      });
+
+      const recurringTopics = Object.values(topicStats).filter((t) => t.examIndices.size >= 2);
+
       let examSummary = exams
         .map((exam, index) => {
           let details = `\n--- SINAV ${index + 1}: ${exam.sinavAdi} (Tarih: ${exam.tarih}, Toplam Net: ${exam.toplamNet || "-"}, LGS Puanı: ${exam.puan || "-"}) ---`;
@@ -1453,6 +1486,14 @@
         })
         .join("\n");
 
+      let recurringWarningPrompt = "";
+      if (isMultiExam && recurringTopics.length > 0) {
+        recurringWarningPrompt = `\n🚨 DİKKAT: 2 VEYA DAHA FAZLA SINAVDA TEKRAR EDEN (KRONİK) YANLIŞ KAZANIMLAR (${recurringTopics.length} adet):
+(Bu kazanımlar öğrencinin birden fazla sınavda peş peşe yanlış yaptığı ve henüz öğrenemediği kalıcı eksiklerdir!)
+${recurringTopics.map((t) => `• [${t.ders}] ${t.kazanimAdi} (${t.examIndices.size} sınavda da yanlış yapıldı: ${t.examNames.join(", ")})`).join("\n")}
+`;
+      }
+
       return `Sen Türkiye'nin en seçkin LGS Eğitim Koçu, Rehberlik ve Ölçme Değerlendirme Uzmanısın.
 Aşağıda sınav sonuç karnesi verilen 8. sınıf öğrencisi için eksik analizini yap ve LGS mantığına uygun 7 günlük profesyonel bir Haftalık Çalışma Çizelgesi Tablosu (Etüt Matrisi) hazırla.
 
@@ -1461,14 +1502,16 @@ Aşağıda sınav sonuç karnesi verilen 8. sınıf öğrencisi için eksik anal
 
 SINAV VERİLERİ VE KAZANIM ANALİZİ:
 ${examSummary}
-
-${isMultiExam ? "NOT: Birden fazla sınav vardır. Sınavlar arası gelişim trendini 'gelisimAnalizi' alanında açıkla." : ""}
+${recurringWarningPrompt}
+${isMultiExam ? "NOT: Birden fazla sınav seçilmiştir. Sınavlar arasındaki net artış/azalışlarını, gelişim seyrini ve özellikle birden fazla sınavda tekrar eden ortak/kronik yanlış kazanımları 'gelisimAnalizi' alanında detaylıca karşılaştır." : ""}
 
 KURALLAR:
 1. Öğrencinin yüzdelik başarısı %100 olmayan (eksik olan) TÜM kazanımlarını 'eksikKonular' listesine önem ve öncelik sırasına göre ekle.
+   ${recurringTopics.length > 0 ? `- 🚨 ÇOK ÖNEMLİ: 2+ sınavda tekrar eden ortak yanlış kazanımları 'eksikKonular' listesinin EN BAŞINA ekle. Bu kazanımlara "isRecurring": true, "recurringCount": ${recurringTopics.length}, "recurringExams": ["Sınav 1 Adı", "Sınav 2 Adı"], "seviye": "kritik" ve "oneri": "🚨 Tekrarlayan Yanlış Telafisi: ..." olarak ata.` : ""}
 2. Öğrenciyi motive eden, güçlü derslerini takdir eden, eksiklere nokta atışı rehberlik yapan profesyonel bir 'genelYorum' yaz.
-3. 'haftalikTablo' içinde Pazartesi'den Pazar'a kadar 7 GÜNÜN HER BİRİ İÇİN 3 Ayrı Etüt (1. Etüt: Konu Tekrarı & Eksik Telafi, 2. Etüt: Yeni Nesil Soru Çözümü, 3. Etüt: Günlük Tekrar / Paragraf / Hata Defteri) oluştur.
-   - 1. Etütler mutlaka öğrencinin %100 altında kalan eksik kazanımlarına odaklanmalıdır.
+3. ${isMultiExam ? "'gelisimAnalizi' alanında sınavlar arasındaki net artış/azalışlarını, hangi derslerde yükseliş/düşüş olduğunu ve özellikle aynı kazanımlarda yapılan tekrarlayan yanlışları derinlemesine değerlendir." : ""}
+4. 'haftalikTablo' içinde Pazartesi'den Pazar'a kadar 7 GÜNÜN HER BİRİ İÇİN 3 Ayrı Etüt (1. Etüt: Konu Tekrarı & Eksik Telafi, 2. Etüt: Yeni Nesil Soru Çözümü, 3. Etüt: Günlük Tekrar / Paragraf / Hata Defteri) oluştur.
+   - 1. Etütler mutlaka öğrencinin %100 altında kalan ${recurringTopics.length > 0 ? "ve özellikle birden fazla sınavda tekrar eden ortak" : ""} eksik kazanımlarına odaklanmalıdır.
    - Cumartesi Sabahı: 90 Soruluk Tam LGS Denemesi ve öğleden sonra Video Çözüm Analizi olmalı.
    - Pazar Günü: Hata Defteri Tekrarı ve dinlenme olmalı.
 
@@ -1476,10 +1519,18 @@ YANIT FORMATI:
 SADECE aşağıdaki JSON nesnesi formatında yanıt ver:
 {
   "eksikKonular": [
-    { "ders": "Türkçe", "konu": "Bağlamdan Kelime ve Sözcükte Anlam Tahmini", "seviye": "kritik", "oneri": "Günlük 25 sözcükte anlam ve paragraf soru çözümü" }
+    {
+      "ders": "Türkçe",
+      "konu": "Bağlamdan Kelime ve Sözcükte Anlam Tahmini",
+      "seviye": "kritik",
+      "isRecurring": true,
+      "recurringCount": 2,
+      "recurringExams": ["1. Deneme", "2. Deneme"],
+      "oneri": "Konu özeti + 35 yeni nesil anlam sorusu ile acil telafi"
+    }
   ],
   "genelYorum": "Metin...",
-  "gelisimAnalizi": "${isMultiExam ? "Gelişim yorumu..." : ""}",
+  "gelisimAnalizi": "${isMultiExam ? "Sınavlar arası karşılaştırma, net değişimleri ve kronik kazanım değerlendirmesi..." : ""}",
   "haftalikTablo": [
     {
       "gun": "Pazartesi",
@@ -1724,12 +1775,13 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
 
     static generateSimulatedAnalysis(student, exams) {
       const latestExam = exams[exams.length - 1];
+      const firstExam = exams[0];
       const isMulti = exams.length > 1;
 
-      const eksikler = [];
-      const seenKeySet = new Set();
+      // 1. ADIM: Sınavlardaki tüm eksik kazanımları ve sınav bazında tekrar sıklığını tara
+      const topicStats = {};
 
-      (exams || []).forEach((exam) => {
+      (exams || []).forEach((exam, examIdx) => {
         (exam.dersSonuclari || []).forEach((d) => {
           let hasWrongGain = false;
           (d.konular || []).forEach((k) => {
@@ -1741,19 +1793,23 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
               const cleanTopic = k.kazanimAdi.trim();
               const uniqueKey = `${(d.ders || "").toLowerCase()}___${cleanTopic.toLowerCase()}`;
 
-              if (!seenKeySet.has(uniqueKey)) {
-                seenKeySet.add(uniqueKey);
-                eksikler.push({
+              if (!topicStats[uniqueKey]) {
+                topicStats[uniqueKey] = {
                   ders: d.ders,
                   konu: cleanTopic,
-                  seviye: yuzde < 50 ? "kritik" : (yuzde < 85 ? "orta" : "hafif"),
-                  yuzde: yuzde,
-                  dogru: k.dogru || 0,
-                  yanlis: k.yanlis || (yuzde < 100 ? 1 : 0),
-                  bos: k.bos || 0,
-                  oneri: `${d.ders} dersinde kavram tekrarı ve ${yuzde === 0 ? "35" : "25"} yeni nesil soru çözümü`
-                });
+                  examIndices: new Set(),
+                  examNames: [],
+                  totalWrong: 0,
+                  totalBos: 0,
+                  yuzde: yuzde
+                };
               }
+              topicStats[uniqueKey].examIndices.add(examIdx);
+              if (!topicStats[uniqueKey].examNames.includes(exam.sinavAdi)) {
+                topicStats[uniqueKey].examNames.push(exam.sinavAdi);
+              }
+              topicStats[uniqueKey].totalWrong += Number(k.yanlis) || 1;
+              topicStats[uniqueKey].totalBos += Number(k.bos) || 0;
             }
           });
 
@@ -1769,21 +1825,64 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
               const cleanTopic = `${currItem.konu}: ${currItem.kazanim}`;
               const uniqueKey = `${(d.ders || "").toLowerCase()}___${cleanTopic.toLowerCase()}`;
 
-              if (!seenKeySet.has(uniqueKey)) {
-                seenKeySet.add(uniqueKey);
-                eksikler.push({
+              if (!topicStats[uniqueKey]) {
+                topicStats[uniqueKey] = {
                   ders: d.ders,
                   konu: cleanTopic,
-                  seviye: "kritik",
-                  yuzde: 0,
-                  dogru: 0,
-                  yanlis: 1,
-                  bos: 0,
-                  oneri: `${d.ders} eksik kavram tekrarı ve 35 yeni nesil soru çözümü`
-                });
+                  examIndices: new Set(),
+                  examNames: [],
+                  totalWrong: 0,
+                  totalBos: 0,
+                  yuzde: 0
+                };
               }
+              topicStats[uniqueKey].examIndices.add(examIdx);
+              if (!topicStats[uniqueKey].examNames.includes(exam.sinavAdi)) {
+                topicStats[uniqueKey].examNames.push(exam.sinavAdi);
+              }
+              topicStats[uniqueKey].totalWrong += 1;
             }
           }
+        });
+      });
+
+      // 2. ADIM: 2 veya daha fazla sınavda tekrar eden ortak yanlışları (kronik eksikleri) ayıkla
+      const recurringTopics = Object.values(topicStats).filter((t) => t.examIndices.size >= 2);
+      const singleTopics = Object.values(topicStats).filter((t) => t.examIndices.size === 1);
+
+      const eksikler = [];
+
+      // Önce 2+ sınavda tekrar eden ortak yanlışları en üste ekle (Kritik Öncelikli)
+      recurringTopics.forEach((t) => {
+        eksikler.push({
+          ders: t.ders,
+          konu: t.konu,
+          isRecurring: true,
+          recurringCount: t.examIndices.size,
+          recurringExams: t.examNames,
+          seviye: "kritik",
+          yuzde: t.yuzde,
+          dogru: 0,
+          yanlis: t.totalWrong,
+          bos: t.totalBos,
+          oneri: `🚨 ${t.examIndices.size} Sınavda Tekrar Eden Kronik Eksik: Konu özet föyü + video soru çözümü + 45 yeni nesil soru ile acil telafi`
+        });
+      });
+
+      // Tekil sınav eksiklerini ekle
+      singleTopics.forEach((t) => {
+        eksikler.push({
+          ders: t.ders,
+          konu: t.konu,
+          isRecurring: false,
+          recurringCount: 1,
+          recurringExams: t.examNames,
+          seviye: t.yuzde < 50 ? "kritik" : (t.yuzde < 85 ? "orta" : "hafif"),
+          yuzde: t.yuzde,
+          dogru: 0,
+          yanlis: t.totalWrong,
+          bos: t.totalBos,
+          oneri: `${t.ders} kavram tekrarı ve ${t.yuzde === 0 ? "35" : "25"} pekiştirme sorusu (${t.examNames[0] || "Deneme"})`
         });
       });
 
@@ -1794,19 +1893,53 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         );
       }
 
+      // 3. ADIM: Genel Yorum ve Gelişim Analizi Metinlerini Üret
+      let genelYorum = `Sevgili ${student.adSoyad}, `;
+      if (isMulti) {
+        const netFark = (Number(latestExam.toplamNet) || 0) - (Number(firstExam.toplamNet) || 0);
+        genelYorum += `seçilen **${exams.length} sınavın** (${firstExam.sinavAdi} ➔ ${latestExam.sinavAdi}) sonuçları karşılaştırmalı olarak analiz edilmiştir. `;
+        if (netFark >= 0) {
+          genelYorum += `Süreç içinde netlerinde **+${netFark.toFixed(2)} netlik artış** kaydedildiği görülmektedir. `;
+        } else {
+          genelYorum += `Sınavlar arasında **${netFark.toFixed(2)} netlik dalgalanma** gözlenmiştir. `;
+        }
+        if (recurringTopics.length > 0) {
+          genelYorum += `Yapılan analizde **${recurringTopics.length} adet kazanımda her iki sınavda da hata tekrarı yapıldığı (kronik eksik)** belirlenmiştir. Bu ortak eksikler aşağıdaki 7 günlük çalışma tablosunda 1. Etütlere mutlak öncelikle atanmıştır.`;
+        } else {
+          genelYorum += `Sınavlar arasında hata tekrarı yapılan ortak kazanım bulunmamakta olup, yeni eksiklerin telafisine odaklanılmıştır.`;
+        }
+      } else {
+        genelYorum += `"${latestExam.sinavAdi}" sınav sonucun değerlendirilmiştir. `;
+        if (latestExam.toplamNet && latestExam.toplamNet >= 80) {
+          genelYorum += `Elde ettiğin **${latestExam.toplamNet} netlik yüksek başarı** ve puan performansın harikadır. `;
+        } else {
+          genelYorum += `Elde ettiğin **${latestExam.toplamNet || 70} netlik performans** düzenli çalışma ile daha da yükselecektir. `;
+        }
+        genelYorum += `Karnende yüzdelik başarısı %100'ün altında kalan ${eksikler.length} adet eksik kazanım tespit edilmiştir. Aşağıdaki 7 günlük çalışma çizelgesi doğrudan bu eksik kazanımlarını telafi etmek üzere hazırlanmıştır.`;
+      }
+
+      let gelisimAnalizi = "";
+      if (isMulti) {
+        const netFark = (Number(latestExam.toplamNet) || 0) - (Number(firstExam.toplamNet) || 0);
+        const puan1 = Number(String(firstExam.puan || "").replace(",", ".")) || 0;
+        const puan2 = Number(String(latestExam.puan || "").replace(",", ".")) || 0;
+        const puanDiff = puan1 > 0 && puan2 > 0 ? (puan2 - puan1).toFixed(2) : null;
+
+        gelisimAnalizi = `📊 **Genel Gelişim Seyri:** ${firstExam.sinavAdi} (${firstExam.toplamNet || "-"} Net) ➔ ${latestExam.sinavAdi} (${latestExam.toplamNet || "-"} Net) [Toplam Net Değişimi: ${netFark >= 0 ? "+" : ""}${netFark.toFixed(2)} Net${puanDiff !== null ? ` | Puan Değişimi: ${Number(puanDiff) >= 0 ? '+' : ''}${puanDiff} Puan` : ''}].\n`;
+        if (recurringTopics.length > 0) {
+          gelisimAnalizi += `\n🚨 **Tekrarlayan (Kronik) Kazanım Hataları:** Seçilen ${exams.length} sınavın çapraz analizinde **${recurringTopics.length} adet kazanımda** hata tekrarı saptanmıştır. Özellikle ${recurringTopics.map((t) => `"${t.ders}: ${t.konu}" (${t.examNames.join(" & ")})`).slice(0, 3).join(", ")} konuları öğrencinin kalıcı telafi gerektiren risk alanlarıdır.\n`;
+          gelisimAnalizi += `\n💡 **Rehberlik & İyileştirme Stratejisi:** Tekrarlayan yanlış yapılan bu kazanımlar, soru çözüm föyleri ve yanlış soru defteri (Hata Defteri) yöntemiyle acilen pekiştirilmelidir. Öğrencinin haftalık çalışma çizelgesindeki 1. Etütler bu eksiklere göre kurgulanmıştır.`;
+        } else {
+          gelisimAnalizi += `\n✓ **Başarı Seyri:** Sınavlar arasında peş peşe hata yapılan ortak kronik bir eksik kazanım saptanmamıştır. Yeni nesil soru pratikleriyle mevcut başarı korunmalıdır.`;
+        }
+      }
+
+      // 4. ADIM: 7 Günlük LGS Etüt Matrisi Tablosu (Öncelikli Eksik Kazanımlarla)
       const e1 = eksikler[0] ? `${eksikler[0].ders}: 🎯 ${eksikler[0].konu}` : "Türkçe: 🎯 Paragraf ve Sözcükte Anlam";
       const e2 = eksikler[1] ? `${eksikler[1].ders}: 🎯 ${eksikler[1].konu}` : "Fen Bilimleri: 🎯 Basınç ve Deneyleri";
       const e3 = eksikler[2] ? `${eksikler[2].ders}: 🎯 ${eksikler[2].konu}` : "Fen Bilimleri: 🎯 Periyodik Sistem ve Madde";
       const e4 = eksikler[3] ? `${eksikler[3].ders}: 🎯 ${eksikler[3].konu}` : "Din Kültürü: 🎯 Zekât ve Sadaka İbadeti";
       const e5 = eksikler[4] ? `${eksikler[4].ders}: 🎯 ${eksikler[4].konu}` : "Matematik: 🎯 Çarpanlar ve Katlar";
-
-      let genelYorum = `Sevgili ${student.adSoyad}, "${latestExam.sinavAdi}" sınav sonucun değerlendirilmiştir. `;
-      if (latestExam.toplamNet && latestExam.toplamNet >= 80) {
-        genelYorum += `Elde ettiğin **${latestExam.toplamNet} netlik yüksek başarı** ve puan performansın harikadır. `;
-      } else {
-        genelYorum += `Elde ettiğin **${latestExam.toplamNet || 70} netlik performans** düzenli çalışma ile daha da yükselecektir. `;
-      }
-      genelYorum += `Karnende yüzdelik başarısı %100'ün altında kalan ${eksikler.length} adet eksik kazanım tespit edilmiştir. Aşağıdaki 7 günlük çalışma çizelgesi doğrudan bu eksik kazanımlarını telafi etmek üzere hazırlanmıştır.`;
 
       const haftalikTablo = [
         {
@@ -1867,17 +2000,21 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         }
       ];
 
+      const kocTavsiyesi = recurringTopics.length > 0
+        ? `Özellikle ${recurringTopics.length} adet sınavlar arası tekrar eden ortak eksik kazanım (${recurringTopics[0].ders} - ${recurringTopics[0].konu} vb.) acil telafi edilmeli, hata defterindeki sorular pazar günü mutlaka sıfır hata ile yeniden çözülmelidir.`
+        : "Hafta boyu denemelerde ve testlerde yanlış yapılan her soru 'Hata Defteri'ne yapıştırılmalı ve pazar günü mutlaka yeniden çözülmelidir.";
+
       return {
         eksikKonular: eksikler,
         genelYorum,
-        gelisimAnalizi: isMulti ? "Sınavlar arasında netlerde istikrarlı yükseliş gözlemlenmiştir." : "",
+        gelisimAnalizi,
         haftalikTablo,
         haftalikOzet: {
           toplamSoruHedefi: "565 Soru",
           toplamEtutSuresi: "21.5 Saat",
           denemeSayisi: "1 Tam LGS Denemesi + 2 Branş Denemesi",
           kitapOkuma: "120 dk Kitap + 100 Paragraf",
-          kocTavsiyesi: "Hafta boyu denemelerde ve testlerde yanlış yapılan her soru 'Hata Defteri'ne yapıştırılmalı ve pazar günü mutlaka yeniden çözülmelidir."
+          kocTavsiyesi
         },
         _isSimulated: true
       };
@@ -2240,7 +2377,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           tempContainer.innerHTML = html;
           document.body.appendChild(tempContainer);
 
-          const page1El = tempContainer.querySelector("#report-page-1") || tempContainer.querySelector(".report-page-1");
+const page1El = tempContainer.querySelector("#report-page-1") || tempContainer.querySelector(".report-page-1");
           const page2El = tempContainer.querySelector("#report-page-2") || tempContainer.querySelector(".report-page-2");
 
           const renderBulkPage = async (domEl) => {
@@ -2314,107 +2451,299 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       let logoHtml = `<img src="${logoSrc}" alt="${institution.ad}" class="report-header-logo-img" style="max-height: 52px; max-width: 130px; object-fit: contain;" />`;
       let logoHtmlMini = `<img src="${logoSrc}" alt="${institution.ad}" style="max-height: 32px; max-width: 80px; object-fit: contain;" />`;
 
-      let examRows = exams
-        .map((exam) => `
-          <div class="report-exam-card mb-2" style="padding: 10px 14px;">
-            <div class="report-exam-card-title mb-2">
-              <span style="font-size: 13px;"><strong>${exam.sinavAdi}</strong> (${formatDate(exam.tarih)})</span>
-              <div class="d-flex gap-2">
-                <span class="badge badge-warning font-bold" style="font-size: 11px;">LGS: <strong>${exam.puan || "-"}</strong></span>
-                <span class="badge badge-primary font-bold" style="font-size: 11px;">Toplam Net: <strong>${exam.toplamNet || "-"} Net</strong></span>
+      const isMulti = exams.length > 1;
+      const firstExam = exams[0] || {};
+      const latestExam = exams[exams.length - 1] || {};
+
+      let comparisonKpisHtml = "";
+      let crossSubjectMatrixHtml = "";
+      let pageTitle = isMulti
+        ? `ÇOKLU SINAV GELİŞİM & KARŞILAŞTIRMA RAPORU`
+        : `ÖĞRENCİ SINAV KARNESİ`;
+
+      if (isMulti) {
+        const net1 = Number(firstExam.toplamNet) || 0;
+        const net2 = Number(latestExam.toplamNet) || 0;
+        const netDiff = net2 - net1;
+
+        const p1 = Number(String(firstExam.puan || "").replace(",", ".")) || 0;
+        const p2 = Number(String(latestExam.puan || "").replace(",", ".")) || 0;
+        const puanDiff = p1 > 0 && p2 > 0 ? (p2 - p1).toFixed(2) : null;
+
+        const recurringList = (report.eksikKonular || []).filter((ek) => ek.isRecurring || (ek.recurringExams && ek.recurringExams.length > 1) || (ek.konu && ek.konu.includes("🚨")));
+
+        comparisonKpisHtml = `
+          <div class="report-comparison-kpis mb-2" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;">
+            <div style="background: rgba(37, 99, 235, 0.06); border: 1.5px solid rgba(37, 99, 235, 0.25); border-radius: 6px; padding: 6px 8px; text-align: center;">
+              <div style="font-size: 9.5px; color: #1e40af; font-weight: 700;">Toplam Net Değişimi</div>
+              <div style="font-size: 13px; font-weight: 800; color: #1d4ed8; margin: 2px 0;">
+                ${firstExam.toplamNet || "-"} ➔ ${latestExam.toplamNet || "-"} Net
+              </div>
+              <span class="badge ${netDiff >= 0 ? 'badge-success' : 'badge-danger'} font-bold" style="font-size: 8.5px; padding: 1px 5px;">
+                ${netDiff >= 0 ? '📈 +' : '📉 '}${netDiff.toFixed(2)} Net Fark
+              </span>
+            </div>
+
+            <div style="background: rgba(168, 85, 247, 0.06); border: 1.5px solid rgba(168, 85, 247, 0.25); border-radius: 6px; padding: 6px 8px; text-align: center;">
+              <div style="font-size: 9.5px; color: #7e22ce; font-weight: 700;">LGS Puan Gelişimi</div>
+              <div style="font-size: 13px; font-weight: 800; color: #9333ea; margin: 2px 0;">
+                ${firstExam.puan || "-"} ➔ ${latestExam.puan || "-"}
+              </div>
+              <span class="badge ${puanDiff !== null && Number(puanDiff) >= 0 ? 'badge-success' : 'badge-primary'} font-bold" style="font-size: 8.5px; padding: 1px 5px;">
+                ${puanDiff !== null ? (Number(puanDiff) >= 0 ? '🏆 +' + puanDiff : '📉 ' + puanDiff) + ' Puan' : 'LGS Puan Takibi'}
+              </span>
+            </div>
+
+            <div style="background: #fef2f2; border: 1.5px solid #fca5a5; border-radius: 6px; padding: 6px 8px; text-align: center;">
+              <div style="font-size: 9.5px; color: #991b1b; font-weight: 800;">🚨 Tekrarlayan Hatalar</div>
+              <div style="font-size: 13px; font-weight: 800; color: #dc2626; margin: 2px 0;">
+                ${recurringList.length} Kazanım
+              </div>
+              <span class="badge badge-danger font-bold" style="font-size: 8.5px; padding: 1px 5px; background: #ef4444; color: #fff;">
+                2+ Sınavda Ortak Yanlış
+              </span>
+            </div>
+
+            <div style="background: #f8fafc; border: 1.5px solid #cbd5e1; border-radius: 6px; padding: 6px 8px; text-align: center;">
+              <div style="font-size: 9.5px; color: #475569; font-weight: 700;">Karşılaştırılan Sınav</div>
+              <div style="font-size: 13px; font-weight: 800; color: #0f172a; margin: 2px 0;">
+                ${exams.length} Deneme Sınavı
+              </div>
+              <span class="badge badge-secondary font-bold" style="font-size: 8.5px; padding: 1px 5px;">
+                Kazanım Eşleştirmeli
+              </span>
+            </div>
+          </div>
+        `;
+
+        const allSubjects = [];
+        exams.forEach((ex) => {
+          (ex.dersSonuclari || []).forEach((d) => {
+            if (d.ders && !allSubjects.includes(d.ders)) allSubjects.push(d.ders);
+          });
+        });
+
+        crossSubjectMatrixHtml = `
+          <div class="report-section mb-2">
+            <div class="report-section-header" style="border-color: ${themeColor}; margin-bottom: 4px; padding-left: 6px;">
+              <div class="d-flex justify-between items-center w-full">
+                <h3 style="color: ${themeColor}; font-size: 11.5px; margin: 0;">📊 Sınavlar Arası Ders Netleri ve Gelişim Trendi</h3>
+                <span class="badge badge-primary font-bold" style="font-size: 8.5px; padding: 2px 6px;">${exams.length} Sınav Karşılaştırma Matrisi</span>
               </div>
             </div>
-            <table class="report-table" style="font-size: 12px;">
-              <thead><tr><th>Ders</th><th>Doğru</th><th>Yanlış</th><th>Boş</th><th>Net</th><th>Başarı %</th></tr></thead>
+            <table class="report-table" style="font-size: 10.5px; margin-bottom: 4px;">
+              <thead>
+                <tr style="background: ${themeColor}12; color: ${themeColor};">
+                  <th style="width: 24%; text-align: left;">Ders Adı</th>
+                  ${exams.map((e) => `<th style="text-align: center;">${escapeHtml(e.sinavAdi.length > 20 ? e.sinavAdi.substring(0, 18) + '...' : e.sinavAdi)}</th>`).join("")}
+                  <th style="text-align: center; width: 14%;">Net Değişimi</th>
+                  <th style="text-align: center; width: 15%;">Trend</th>
+                </tr>
+              </thead>
               <tbody>
-                ${(exam.dersSonuclari || []).map((d) => {
-                  const total = Number(d.dogru) + Number(d.yanlis) + Number(d.bos);
-                  const rate = total > 0 ? Math.round((Number(d.dogru) / total) * 100) : 0;
-                  return `<tr>
-                    <td><strong>${d.ders}</strong></td>
-                    <td class="text-success font-bold">${d.dogru}</td>
-                    <td class="text-danger font-bold">${d.yanlis}</td>
-                    <td class="text-muted">${d.bos}</td>
-                    <td><strong class="text-primary">${d.net} Net</strong></td>
-                    <td><div class="report-progress-wrap"><div class="report-progress-bar" style="width: ${rate}%; background: ${themeColor}"></div><span class="report-progress-text">%${rate}</span></div></td>
-                  </tr>`;
+                ${allSubjects.map((subj) => {
+                  const nets = exams.map((ex) => {
+                    const match = (ex.dersSonuclari || []).find((d) => d.ders === subj);
+                    return match ? Number(match.net) || 0 : null;
+                  });
+                  const fNet = nets[0];
+                  const lNet = nets[nets.length - 1];
+                  const delta = (fNet !== null && lNet !== null) ? (lNet - fNet) : 0;
+                  let trendBadge = "";
+                  if (delta > 0.2) {
+                    trendBadge = `<span class="badge badge-success font-bold" style="font-size: 8.5px; padding: 1px 4px;">📈 +${delta.toFixed(2)} (Yükseliş)</span>`;
+                  } else if (delta < -0.2) {
+                    trendBadge = `<span class="badge badge-danger font-bold" style="font-size: 8.5px; padding: 1px 4px;">📉 ${delta.toFixed(2)} (Düşüş)</span>`;
+                  } else {
+                    trendBadge = `<span class="badge badge-secondary font-bold" style="font-size: 8.5px; padding: 1px 4px;">➡️ Dengeli</span>`;
+                  }
+
+                  return `
+                    <tr>
+                      <td style="font-weight: 700; color: #0f172a;">${subj}</td>
+                      ${nets.map((n) => `<td style="text-align: center; font-weight: 600; color: #334155;">${n !== null ? n + ' Net' : '-'}</td>`).join("")}
+                      <td style="text-align: center;">
+                        <strong style="color: ${delta >= 0 ? '#059669' : '#dc2626'}; font-size: 11px;">
+                          ${delta >= 0 ? '+' : ''}${delta.toFixed(2)}
+                        </strong>
+                      </td>
+                      <td style="text-align: center;">${trendBadge}</td>
+                    </tr>
+                  `;
                 }).join("")}
               </tbody>
             </table>
           </div>
-        `).join("");
+        `;
+      }
+
+      let examRows = "";
+      if (!isMulti) {
+        examRows = exams
+          .map((exam) => `
+            <div class="report-exam-card mb-2" style="padding: 10px 14px;">
+              <div class="report-exam-card-title mb-2">
+                <span style="font-size: 13px;"><strong>${exam.sinavAdi}</strong> (${formatDate(exam.tarih)})</span>
+                <div class="d-flex gap-2">
+                  <span class="badge badge-warning font-bold" style="font-size: 11px;">LGS: <strong>${exam.puan || "-"}</strong></span>
+                  <span class="badge badge-primary font-bold" style="font-size: 11px;">Toplam Net: <strong>${exam.toplamNet || "-"} Net</strong></span>
+                </div>
+              </div>
+              <table class="report-table" style="font-size: 12px;">
+                <thead><tr><th>Ders</th><th>Doğru</th><th>Yanlış</th><th>Boş</th><th>Net</th><th>Başarı %</th></tr></thead>
+                <tbody>
+                  ${(exam.dersSonuclari || []).map((d) => {
+                    const total = Number(d.dogru) + Number(d.yanlis) + Number(d.bos);
+                    const rate = total > 0 ? Math.round((Number(d.dogru) / total) * 100) : 0;
+                    return `<tr>
+                      <td><strong>${d.ders}</strong></td>
+                      <td class="text-success font-bold">${d.dogru}</td>
+                      <td class="text-danger font-bold">${d.yanlis}</td>
+                      <td class="text-muted">${d.bos}</td>
+                      <td><strong class="text-primary">${d.net} Net</strong></td>
+                      <td><div class="report-progress-wrap"><div class="report-progress-bar" style="width: ${rate}%; background: ${themeColor}"></div><span class="report-progress-text">%${rate}</span></div></td>
+                    </tr>`;
+                  }).join("")}
+                </tbody>
+              </table>
+            </div>
+          `).join("");
+      }
 
       let eksikHtml = "";
       if (report.eksikKonular && report.eksikKonular.length > 0) {
-        const totalDeficits = report.eksikKonular.length;
-        const isDense = totalDeficits > 6;
+        const recurringTopics = report.eksikKonular.filter((ek) => ek.isRecurring || (ek.recurringExams && ek.recurringExams.length > 1) || (ek.konu && ek.konu.includes("🚨")));
+        const nonRecurringTopics = report.eksikKonular.filter((ek) => !recurringTopics.includes(ek));
 
-        if (isDense) {
-          // Çok sayıda eksik kazanım varsa (örn: 10-40 arası), ders bazında şık ve kompakt 2-sütunlu gruplama yap
-          const groupedByDers = {};
-          report.eksikKonular.forEach((ek) => {
-            const dName = ek.ders || "Genel";
-            if (!groupedByDers[dName]) groupedByDers[dName] = [];
-            groupedByDers[dName].push(ek);
-          });
-
-          eksikHtml = `
-            <div class="report-section mb-2">
-              <div class="report-section-header" style="border-color: ${themeColor}; margin-bottom: 4px; padding-left: 6px;">
-                <div class="d-flex justify-between items-center w-full">
-                  <h3 style="color: ${themeColor}; font-size: 12px; margin: 0;">🎯 Tespit Edilen Eksik Konu ve Kazanımlar (${totalDeficits} Kazanım)</h3>
-                  <span class="badge badge-warning font-bold" style="font-size: 9px; padding: 2px 6px;">Öncelikli Telafi Listesi</span>
+        let recurringBlockHtml = "";
+        if (isMulti && recurringTopics.length > 0) {
+          recurringBlockHtml = `
+            <div class="report-section mb-2" style="background: #fff8f8; border: 1.5px solid #fca5a5; border-radius: 6px; padding: 7px 10px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1.5px solid #fecaca; padding-bottom: 4px; margin-bottom: 6px;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span style="font-size: 15px;">🚨</span>
+                  <div>
+                    <h3 style="color: #991b1b; font-size: 11.5px; margin: 0; font-weight: 800;">
+                      2+ Sınavda Tekrarlayan (Kronik) Yanlış Kazanımlar (${recurringTopics.length} Kazanım)
+                    </h3>
+                    <span style="font-size: 9px; color: #b91c1c;">
+                      Bu kazanımlar öğrencinin birden fazla sınavda üst üste yanlış yaptığı acil telafi gerektiren kalıcı eksiklerdir!
+                    </span>
+                  </div>
                 </div>
+                <span class="badge badge-danger font-bold" style="font-size: 8.5px; padding: 2px 6px; background: #ef4444; color: #fff;">
+                  Öncelikli Eylem Alanı
+                </span>
               </div>
-              <div class="report-deficiencies-dense-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
-                ${Object.entries(groupedByDers).map(([ders, items]) => {
-                  const displayItems = items.slice(0, 3);
-                  const remainingCount = items.length - displayItems.length;
+
+              <div class="report-recurring-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
+                ${recurringTopics.map((ek) => {
+                  const examList = ek.recurringExams && ek.recurringExams.length > 0
+                    ? ek.recurringExams
+                    : exams.map((e) => e.sinavAdi);
+                  const cleanKonu = (ek.konu || "").replace(/🚨/g, "").replace(/Tekrar Eden/g, "").trim();
+
                   return `
-                    <div class="report-dense-subject-card" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 4px 6px;">
-                      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px; margin-bottom: 3px;">
-                        <strong style="color: ${themeColor}; font-size: 10.5px;">${ders}</strong>
-                        <span class="badge badge-secondary" style="font-size: 8.5px; padding: 1px 4px;">${items.length} Eksik</span>
+                    <div class="report-deficiency-item recurring-card" style="padding: 5px 8px; background: #ffffff; border: 1px solid #fca5a5; border-radius: 4px; box-shadow: 0 1px 2px rgba(220, 38, 38, 0.05);">
+                      <div class="report-deficiency-header mb-1" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span class="report-deficiency-subject" style="font-size: 10.5px; font-weight: 800; color: #991b1b;">${ek.ders}</span>
+                        <div class="d-flex gap-1 items-center">
+                          <span class="badge badge-danger font-bold" style="font-size: 7.5px; padding: 1px 4px; background: #ef4444; color: #fff;">
+                            🚨 Tekrarlayan Yanlış (${ek.recurringCount || examList.length} Sınav)
+                          </span>
+                          <span class="badge badge-danger font-bold" style="font-size: 7.5px; padding: 1px 4px;">Kritik</span>
+                        </div>
                       </div>
-                      <ul style="margin: 0; padding-left: 12px; font-size: 9.5px; color: #334155; line-height: 1.25;">
-                        ${displayItems.map((it) => `
-                          <li style="margin-bottom: 2px;">
-                            <span>${it.konu}</span>
-                            ${it.seviye === "kritik" ? `<span class="badge badge-danger" style="font-size: 7.5px; padding: 0 2px; margin-left: 2px;">Kritik</span>` : ""}
-                          </li>
-                        `).join("")}
-                        ${remainingCount > 0 ? `<li style="list-style: none; margin-top: 2px;"><span style="color: #64748b; font-size: 8.5px; font-weight: 600;">+ ${remainingCount} diğer eksik kazanım</span></li>` : ""}
-                      </ul>
+                      <div class="report-deficiency-title" style="font-size: 10px; font-weight: 700; color: #1e293b; line-height: 1.25;">
+                        ${cleanKonu}
+                      </div>
+                      <div class="recurring-exams-bar" style="margin-top: 3px; padding: 2px 5px; background: #fef2f2; border: 1px dashed #f87171; border-radius: 3px; font-size: 9px; color: #991b1b; display: flex; align-items: center; gap: 3px; flex-wrap: wrap;">
+                        <strong>📌 Hata Yapılan Sınavlar:</strong>
+                        ${examList.map((name) => `<span class="badge badge-danger font-bold" style="font-size: 8px; padding: 0 4px; background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5;">${escapeHtml(name)}</span>`).join("")}
+                      </div>
+                      ${ek.oneri ? `<div class="report-deficiency-tip" style="font-size: 9px; color: #475569; background: #f8fafc; padding: 2px 5px; border-radius: 2px; border: 1px solid #e2e8f0; margin-top: 3px;">💡 <strong>Eylem Planı:</strong> ${escapeHtml(ek.oneri.replace(/🚨.*?:/g, "").trim())}</div>` : ""}
                     </div>
                   `;
                 }).join("")}
               </div>
             </div>
           `;
-        } else {
-          eksikHtml = `
-            <div class="report-section mb-2">
-              <div class="report-section-header" style="border-color: ${themeColor}; margin-bottom: 4px; padding-left: 6px;">
-                <h3 style="color: ${themeColor}; font-size: 12px; margin: 0;">🎯 Tespit Edilen Eksik Konu ve Kazanımlar</h3>
-                <span class="report-section-sub" style="font-size: 10px;">Öncelik sırasına göre telafi edilmesi gereken konu başlıkları</span>
-              </div>
-              <div class="report-deficiencies-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
-                ${report.eksikKonular.map((ek) => `
-                  <div class="report-deficiency-item" style="padding: 4px 8px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px;">
-                    <div class="report-deficiency-header mb-1" style="display: flex; justify-content: space-between; align-items: center;">
-                      <span class="report-deficiency-subject" style="font-size: 10.5px; font-weight: 700; color: #0f172a;">${ek.ders}</span>
-                      <span class="badge ${ek.seviye === "kritik" ? "badge-danger font-bold" : ek.seviye === "orta" ? "badge-warning font-bold" : "badge-info font-bold"}" style="font-size: 8.5px; padding: 1px 4px;">
-                        ${ek.seviye === "kritik" ? "Kritik" : ek.seviye === "orta" ? "Orta" : "Hafif"}
-                      </span>
-                    </div>
-                    <div class="report-deficiency-title" style="font-size: 10px; font-weight: 600; color: #1e293b; line-height: 1.25;">${ek.konu}</div>
-                    ${ek.oneri ? `<div class="report-deficiency-tip" style="font-size: 9.5px; color: #475569; background: #ffffff; padding: 2px 5px; border-radius: 2px; border: 1px solid #e2e8f0; margin-top: 2px;">💡 ${ek.oneri}</div>` : ""}
-                  </div>
-                `).join("")}
-              </div>
-            </div>
-          `;
         }
+
+        let nonRecurringBlockHtml = "";
+        if (nonRecurringTopics.length > 0) {
+          const isDense = nonRecurringTopics.length > 6;
+          if (isDense) {
+            const groupedByDers = {};
+            nonRecurringTopics.forEach((ek) => {
+              const dName = ek.ders || "Genel";
+              if (!groupedByDers[dName]) groupedByDers[dName] = [];
+              groupedByDers[dName].push(ek);
+            });
+
+            nonRecurringBlockHtml = `
+              <div class="report-section mb-2">
+                <div class="report-section-header" style="border-color: ${themeColor}; margin-bottom: 4px; padding-left: 6px;">
+                  <div class="d-flex justify-between items-center w-full">
+                    <h3 style="color: ${themeColor}; font-size: 11.5px; margin: 0;">🎯 ${isMulti ? "Tek Sınavda Tespit Edilen Diğer Eksik Kazanımlar" : "Tespit Edilen Eksik Konu ve Kazanımlar"} (${nonRecurringTopics.length} Kazanım)</h3>
+                    <span class="badge badge-warning font-bold" style="font-size: 8.5px; padding: 2px 6px;">Öncelikli Telafi Listesi</span>
+                  </div>
+                </div>
+                <div class="report-deficiencies-dense-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
+                  ${Object.entries(groupedByDers).map(([ders, items]) => {
+                    const displayItems = items.slice(0, 3);
+                    const remainingCount = items.length - displayItems.length;
+                    return `
+                      <div class="report-dense-subject-card" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 4px 6px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px; margin-bottom: 3px;">
+                          <strong style="color: ${themeColor}; font-size: 10.5px;">${ders}</strong>
+                          <span class="badge badge-secondary" style="font-size: 8.5px; padding: 1px 4px;">${items.length} Eksik</span>
+                        </div>
+                        <ul style="margin: 0; padding-left: 12px; font-size: 9.5px; color: #334155; line-height: 1.25;">
+                          ${displayItems.map((it) => `
+                            <li style="margin-bottom: 2px;">
+                              <span>${it.konu}</span>
+                              ${it.recurringExams && it.recurringExams.length > 0 ? `<span class="badge badge-light" style="font-size: 7.5px; padding: 0 3px; color: #64748b;">(${it.recurringExams[0]})</span>` : ""}
+                            </li>
+                          `).join("")}
+                          ${remainingCount > 0 ? `<li style="list-style: none; margin-top: 2px;"><span style="color: #64748b; font-size: 8.5px; font-weight: 600;">+ ${remainingCount} diğer eksik kazanım</span></li>` : ""}
+                        </ul>
+                      </div>
+                    `;
+                  }).join("")}
+                </div>
+              </div>
+            `;
+          } else {
+            nonRecurringBlockHtml = `
+              <div class="report-section mb-2">
+                <div class="report-section-header" style="border-color: ${themeColor}; margin-bottom: 4px; padding-left: 6px;">
+                  <h3 style="color: ${themeColor}; font-size: 11.5px; margin: 0;">🎯 ${isMulti ? "Tek Sınavda Tespit Edilen Diğer Eksik Kazanımlar" : "Tespit Edilen Eksik Konu ve Kazanımlar"}</h3>
+                  <span class="report-section-sub" style="font-size: 9.5px;">Öncelik sırasına göre telafi edilmesi gereken konu başlıkları</span>
+                </div>
+                <div class="report-deficiencies-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
+                  ${nonRecurringTopics.map((ek) => `
+                    <div class="report-deficiency-item" style="padding: 4px 8px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px;">
+                      <div class="report-deficiency-header mb-1" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span class="report-deficiency-subject" style="font-size: 10.5px; font-weight: 700; color: #0f172a;">${ek.ders}</span>
+                        <div class="d-flex gap-1 items-center">
+                          ${ek.recurringExams && ek.recurringExams.length > 0 ? `<span class="badge badge-light" style="font-size: 8px; padding: 0 4px; color: #64748b;">${escapeHtml(ek.recurringExams[0])}</span>` : ""}
+                          <span class="badge ${ek.seviye === "kritik" ? "badge-danger font-bold" : ek.seviye === "orta" ? "badge-warning font-bold" : "badge-info font-bold"}" style="font-size: 8px; padding: 1px 4px;">
+                            ${ek.seviye === "kritik" ? "Kritik" : ek.seviye === "orta" ? "Orta" : "Hafif"}
+                          </span>
+                        </div>
+                      </div>
+                      <div class="report-deficiency-title" style="font-size: 10px; font-weight: 600; color: #1e293b; line-height: 1.25;">${ek.konu}</div>
+                      ${ek.oneri ? `<div class="report-deficiency-tip" style="font-size: 9px; color: #475569; background: #ffffff; padding: 2px 5px; border-radius: 2px; border: 1px solid #e2e8f0; margin-top: 2px;">💡 ${ek.oneri}</div>` : ""}
+                    </div>
+                  `).join("")}
+                </div>
+              </div>
+            `;
+          }
+        }
+
+        eksikHtml = recurringBlockHtml + nonRecurringBlockHtml;
       }
 
       let scheduleMatrixHtml = "";
@@ -2521,7 +2850,6 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
 
       return `
         <div class="report-a4-sheet" id="printable-report-sheet">
-          <!-- 1. SAYFA: ÖĞRENCİ SINAV KARNESİ & GELİŞİM RAPORU -->
           <div class="report-a4-page report-page-1" id="report-page-1">
             <div class="report-page-content">
               <div class="report-header">
@@ -2537,7 +2865,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
                   </div>
                 </div>
                 <div class="report-header-right">
-                  <div class="report-badge-title" style="background: ${themeColor};">ÖĞRENCİ SINAV KARNESİ</div>
+                  <div class="report-badge-title" style="background: ${themeColor}; font-size: ${isMulti ? '9px' : '11px'};">${pageTitle}</div>
                   <div class="report-date-badge">Tarih: ${formatDate(report.olusturmaTarihi)}</div>
                 </div>
               </div>
@@ -2546,15 +2874,28 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
                 <div class="student-meta-item"><span class="meta-label">Öğrenci Adı Soyadı:</span><span class="meta-value"><strong>${student.adSoyad}</strong></span></div>
                 <div class="student-meta-item"><span class="meta-label">Sınıf / Şube:</span><span class="meta-value">${student.sinif}. Sınıf (${student.sube})</span></div>
                 <div class="student-meta-item"><span class="meta-label">Öğrenci No:</span><span class="meta-value">#${student.numara || "-"}</span></div>
-                <div class="student-meta-item"><span class="meta-label">Toplam Net:</span><span class="meta-value"><span class="badge badge-primary font-bold">${exams[0]?.toplamNet || "-"} Net</span></span></div>
+                <div class="student-meta-item">
+                  <span class="meta-label">${isMulti ? "Sınav Net Seyri:" : "Toplam Net:"}</span>
+                  <span class="meta-value">
+                    ${isMulti 
+                      ? `<span class="badge badge-primary font-bold">${firstExam.toplamNet || "-"} ➔ ${latestExam.toplamNet || "-"} Net</span>`
+                      : `<span class="badge badge-primary font-bold">${firstExam.toplamNet || "-"} Net</span>`
+                    }
+                  </span>
+                </div>
               </div>
 
-              <div class="report-section">
-                <div class="report-section-header" style="border-color: ${themeColor};">
-                  <h3 style="color: ${themeColor};">📊 Sınav Net ve Başarı Dağılımı</h3>
+              ${comparisonKpisHtml}
+              ${crossSubjectMatrixHtml}
+
+              ${!isMulti ? `
+                <div class="report-section">
+                  <div class="report-section-header" style="border-color: ${themeColor};">
+                    <h3 style="color: ${themeColor};">📊 Sınav Net ve Başarı Dağılımı</h3>
+                  </div>
+                  <div class="report-exams-container">${examRows}</div>
                 </div>
-                <div class="report-exams-container">${examRows}</div>
-              </div>
+              ` : ""}
 
               ${eksikHtml}
 
@@ -3170,14 +3511,18 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           <td><strong>#${s.numara || "-"}</strong></td>
           <td>
             <div class="d-flex flex-column gap-1" style="align-items: flex-start;">
-              <span class="badge ${studentExams.length > 0 ? "badge-primary" : "badge-light"} cursor-pointer" onclick="window.app.openStudentProfile('${s.id}')" title="Sınav geçmişini ve raporları görüntüle" style="cursor: pointer;">
+              <span class="badge ${studentExams.length > 0 ? "badge-primary" : "badge-light"} cursor-pointer" onclick="window.app.openStudentProfile('${s.id}')" title="Sınav geçmişini ve profili görüntüle" style="cursor: pointer;">
                 📋 ${studentExams.length} Sınav
               </span>
-              ${studentReports.length > 0 ? `
-                <button class="btn btn-sm btn-outline text-success border-success font-bold" onclick="event.stopPropagation(); window.app.viewLatestStudentReport('${s.id}')" title="En son oluşturulan AI Raporunu aç" style="padding: 2px 8px; font-size: 11px; background: rgba(16, 185, 129, 0.08); border-radius: 99px; border-color: #10b981; cursor: pointer;">
-                  🤖 AI Raporu (${studentReports.length}) ↗
+              ${studentExams.length > 0 ? `
+                <button class="btn btn-sm btn-outline text-success border-success font-bold" onclick="event.stopPropagation(); window.app.openStudentAiReportModal('${s.id}')" title="Sınav seçerek AI Raporu aç veya yeni analiz oluştur" style="padding: 2px 8px; font-size: 11px; background: rgba(16, 185, 129, 0.08); border-radius: 99px; border-color: #10b981; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
+                  🤖 AI Raporu ${studentReports.length > 0 ? `(${studentReports.length})` : ""} ↗
                 </button>
-              ` : ""}
+              ` : `
+                <button class="btn btn-sm btn-ghost text-muted" onclick="event.stopPropagation(); window.app.openUploadPdfModal()" title="Sınav PDF Belgesi Yükle" style="padding: 1px 6px; font-size: 10.5px;">
+                  + Sınav Yükle
+                </button>
+              `}
             </div>
           </td>
           <td><div>${escapeHtml(s.veliAdSoyad || "-")}</div><div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(s.veliTelefon || "-")}</div></td>
@@ -4911,16 +5256,262 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       this.renderModalContainer(modalHtml);
     }
 
-    viewLatestStudentReport(studentId) {
+    openStudentAiReportModal(studentId) {
       const state = store.getState();
       const student = state.students.find((s) => s.id === studentId);
-      const studentName = student ? (student.adSoyad || "").toLowerCase() : "";
-      const studentReports = state.reports.filter((r) => r && (r.ogrenciId === studentId || (studentName && r.ogrenciAdSoyad && r.ogrenciAdSoyad.toLowerCase() === studentName)));
-      if (studentReports.length > 0) {
-        this.viewReportDetail(studentReports[0].id);
-      } else {
-        this.openStudentProfile(studentId);
+      if (!student) {
+        showToast("Öğrenci kaydı bulunamadı.", "warning");
+        return;
       }
+
+      const studentExams = state.exams.filter((e) => e.ogrenciId === studentId);
+      if (studentExams.length === 0) {
+        showToast(`"${student.adSoyad}" için kayıtlı sınav bulunamadı. Lütfen önce sınav PDF'i yükleyin.`, "info");
+        this.openUploadPdfModal();
+        return;
+      }
+
+      const studentName = (student.adSoyad || "").toLowerCase();
+      const studentReports = state.reports.filter((r) => r && (r.ogrenciId === studentId || (studentName && r.ogrenciAdSoyad && r.ogrenciAdSoyad.toLowerCase() === studentName)));
+      const latestExam = studentExams[studentExams.length - 1];
+
+      const modalHtml = `
+        <div class="modal-backdrop" id="student-ai-report-select-modal" onclick="if(event.target === this) window.app.closeModal('student-ai-report-select-modal')">
+          <div class="modal-dialog animate-scale-up" style="max-width: 680px;">
+            <div class="modal-header" style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #ffffff; border-top-left-radius: var(--radius-lg); border-top-right-radius: var(--radius-lg); padding: 18px 22px;">
+              <div>
+                <div class="d-flex items-center gap-2">
+                  <span style="font-size: 20px;">🤖</span>
+                  <h3 class="modal-title" style="color: #ffffff; font-size: 18px;">${escapeHtml(student.adSoyad)} — AI Sınav Raporu Seçimi</h3>
+                </div>
+                <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">
+                  ${student.sinif}. Sınıf / ${student.sube} • Okul No: #${student.numara || "-"} • Toplam <strong>${studentExams.length} Kayıtlı Sınav</strong>
+                </div>
+              </div>
+              <button class="modal-close" style="color: #ffffff;" onclick="window.app.closeModal('student-ai-report-select-modal')">&times;</button>
+            </div>
+
+            <div class="modal-body" style="padding: 20px 22px;">
+              <!-- REHBER BİLGİ KUTUSU -->
+              <div class="student-ai-modal-guide mb-3" style="background: rgba(37, 99, 235, 0.05); border: 1px solid rgba(37, 99, 235, 0.2); border-radius: 8px; padding: 12px 14px;">
+                <div style="font-size: 12.5px; color: #1e3a8a; font-weight: 600; margin-bottom: 4px;">📌 Sınav Raporlama ve Karşılaştırma Rehberi:</div>
+                <ul style="margin: 0; padding-left: 18px; font-size: 11.5px; color: #334155; line-height: 1.5;">
+                  <li><strong>Tek Sınav Seçildiğinde:</strong> Eğer o sınavın sistemde hazır AI raporu varsa anında açılır, yoksa yeni analiz üretilir.</li>
+                  <li><strong>Birden Fazla Sınav Seçildiğinde:</strong> Seçili sınavlar karşılaştırılarak net/başarı gelişim seyri hesaplanır ve <strong>özellikle aynı kazanımlarda yapılan ortak hatalara (kronik eksiklere)</strong> odaklı 7 günlük çalışma tablosu oluşturulur.</li>
+                </ul>
+              </div>
+
+              <!-- HIZLI SEÇİM BUTONLARI -->
+              <div class="d-flex justify-between items-center mb-2" style="flex-wrap: wrap; gap: 8px;">
+                <label class="form-label mb-0" style="font-weight: 700; font-size: 13px;">Analiz Edilecek Sınav(ları) Seçiniz:</label>
+                <div class="btn-group">
+                  <button type="button" class="btn btn-xs btn-outline" onclick="window.app.selectAllStudentModalExams('${student.id}', true)">Tümünü Seç (${studentExams.length})</button>
+                  <button type="button" class="btn btn-xs btn-outline" onclick="window.app.selectAllStudentModalExams('${student.id}', false)">Seçimi Temizle</button>
+                  <button type="button" class="btn btn-xs btn-primary" onclick="window.app.selectLatestStudentModalExam('${student.id}', '${latestExam.id}')">En Son Sınav</button>
+                </div>
+              </div>
+
+              <!-- SINAV LİSTESİ -->
+              <div class="student-ai-exam-list-container" style="max-height: 280px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; padding: 6px; background: var(--bg-main);">
+                ${studentExams.map((e, index) => {
+                  const singleReport = studentReports.find((r) => (r.kullanilanSinavIdler || []).length <= 1 && (r.kullanilanSinavIdler || []).includes(e.id));
+                  const multiReport = studentReports.find((r) => (r.kullanilanSinavIdler || []).length > 1 && (r.kullanilanSinavIdler || []).includes(e.id));
+                  const isLatest = index === studentExams.length - 1;
+
+                  let reportStatusBadge = "";
+                  if (singleReport) {
+                    reportStatusBadge = `<span class="badge badge-success font-bold" style="font-size: 10px; cursor: pointer;" onclick="event.stopPropagation(); window.app.closeModal('student-ai-report-select-modal'); window.app.viewReportDetail('${singleReport.id}')" title="Hazır AI Raporunu Aç">✓ Hazır AI Raporu Var (Aç ↗)</span>`;
+                  } else if (multiReport) {
+                    reportStatusBadge = `<span class="badge badge-info font-bold" style="font-size: 10px; cursor: pointer;" onclick="event.stopPropagation(); window.app.closeModal('student-ai-report-select-modal'); window.app.viewReportDetail('${multiReport.id}')" title="Karşılaştırmalı Raporu Aç">📊 Karşılaştırma Raporunda (Aç ↗)</span>`;
+                  } else {
+                    reportStatusBadge = `<span class="badge badge-light" style="font-size: 10px; color: #64748b;">⚪ Henüz Rapor Yok</span>`;
+                  }
+
+                  return `
+                    <label class="student-modal-exam-row ${isLatest ? 'selected-highlight' : ''}" id="st-modal-exam-row-${e.id}" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; margin-bottom: 4px; background: #ffffff; border: 1.5px solid ${isLatest ? 'var(--primary)' : 'var(--border-color)'}; border-radius: 6px; cursor: pointer; transition: all 0.2s;">
+                      <div class="d-flex items-center gap-3" style="flex: 1;">
+                        <input type="checkbox" class="student-modal-exam-chk" id="chk-st-modal-exam-${e.id}" value="${e.id}" ${isLatest ? 'checked' : ''} onchange="window.app.updateStudentAiModalFooter('${student.id}')" />
+                        <div>
+                          <div style="font-weight: 700; font-size: 13px; color: var(--text-dark);">${escapeHtml(e.sinavAdi)}</div>
+                          <div style="font-size: 11.5px; color: var(--text-muted);">
+                            📅 Tarih: ${formatDate(e.tarih)} • 🎯 ${e.tur === "kazanimli" ? "Kazanımlı" : "Kazanımsız"}
+                          </div>
+                        </div>
+                      </div>
+                      <div class="d-flex items-center gap-2" style="text-align: right;">
+                        <div>
+                          <span class="badge badge-primary font-bold" style="font-size: 11px;">${e.toplamNet || "-"} Net</span>
+                          ${e.puan ? `<span class="badge badge-warning font-bold" style="font-size: 11px; margin-left: 2px;">${e.puan}</span>` : ""}
+                        </div>
+                        <div>${reportStatusBadge}</div>
+                      </div>
+                    </label>
+                  `;
+                }).join("")}
+              </div>
+
+              <!-- DİNAMİK AKSİYON ALANI (Seçime Göre Canlı Güncellenir) -->
+              <div id="student-ai-modal-footer-action" class="mt-3">
+                <!-- Javascript ile doldurulur -->
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      this.renderModalContainer(modalHtml);
+      this.updateStudentAiModalFooter(studentId);
+    }
+
+    selectAllStudentModalExams(studentId, checked) {
+      const checkboxes = document.querySelectorAll(".student-modal-exam-chk");
+      checkboxes.forEach((cb) => {
+        cb.checked = checked;
+        const row = document.getElementById("st-modal-exam-row-" + cb.value);
+        if (row) row.style.borderColor = checked ? "var(--primary)" : "var(--border-color)";
+      });
+      this.updateStudentAiModalFooter(studentId);
+    }
+
+    selectLatestStudentModalExam(studentId, latestExamId) {
+      const checkboxes = document.querySelectorAll(".student-modal-exam-chk");
+      checkboxes.forEach((cb) => {
+        cb.checked = (cb.value === latestExamId);
+        const row = document.getElementById("st-modal-exam-row-" + cb.value);
+        if (row) row.style.borderColor = (cb.value === latestExamId) ? "var(--primary)" : "var(--border-color)";
+      });
+      this.updateStudentAiModalFooter(studentId);
+    }
+
+    updateStudentAiModalFooter(studentId) {
+      const footerContainer = document.getElementById("student-ai-modal-footer-action");
+      if (!footerContainer) return;
+
+      const state = store.getState();
+      const student = state.students.find((s) => s.id === studentId);
+      if (!student) return;
+
+      const checkedCheckboxes = Array.from(document.querySelectorAll(".student-modal-exam-chk:checked"));
+      const checkedExamIds = checkedCheckboxes.map((cb) => cb.value);
+      const chosenExams = state.exams.filter((e) => checkedExamIds.includes(e.id));
+      const studentReports = state.reports.filter((r) => r && (r.ogrenciId === studentId || (r.ogrenciAdSoyad && r.ogrenciAdSoyad.toLowerCase() === student.adSoyad.toLowerCase())));
+
+      // Checkbox row border style sync
+      document.querySelectorAll(".student-modal-exam-chk").forEach((cb) => {
+        const row = document.getElementById("st-modal-exam-row-" + cb.value);
+        if (row) row.style.borderColor = cb.checked ? "var(--primary)" : "var(--border-color)";
+      });
+
+      if (checkedExamIds.length === 0) {
+        footerContainer.innerHTML = `
+          <div class="d-flex justify-between items-center p-3" style="background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px;">
+            <span style="color: #64748b; font-size: 12.5px;">İşlem yapmak için yukarıdan en az 1 sınav seçin.</span>
+            <button class="btn btn-primary" disabled>Lütfen Sınav Seçin</button>
+          </div>
+        `;
+        return;
+      }
+
+      if (checkedExamIds.length === 1) {
+        const singleExam = chosenExams[0];
+        const existingReport = studentReports.find((r) => (r.kullanilanSinavIdler || []).includes(singleExam.id) || r.sinavId === singleExam.id);
+
+        if (existingReport) {
+          footerContainer.innerHTML = `
+            <div class="d-flex flex-column gap-2 p-3" style="background: rgba(16, 185, 129, 0.06); border: 1.5px solid #10b981; border-radius: 8px;">
+              <div class="d-flex justify-between items-center" style="flex-wrap: wrap; gap: 8px;">
+                <div>
+                  <div style="font-weight: 700; color: #065f46; font-size: 13px;">✓ Bu Sınava Ait Hazır AI Raporu Mevcut!</div>
+                  <div style="font-size: 11.5px; color: #047857;">"${escapeHtml(singleExam.sinavAdi)}" sınavının karne ve çalışma programı raporu hazır.</div>
+                </div>
+                <div class="d-flex gap-2">
+                  <button class="btn btn-outline btn-sm font-bold" onclick="window.app.executeStudentModalAiAnalysis('${student.id}', ['${singleExam.id}'], true)" title="Yapay zekâ ile analizi yeniden çalıştır">
+                    🔄 Yeniden Analiz Et
+                  </button>
+                  <button class="btn btn-success shadow-glow font-bold" onclick="window.app.closeModal('student-ai-report-select-modal'); window.app.viewReportDetail('${existingReport.id}')">
+                    📄 Mevcut AI Raporunu Aç (${escapeHtml(singleExam.sinavAdi)})
+                  </button>
+                </div>
+              </div>
+            </div>
+          `;
+        } else {
+          footerContainer.innerHTML = `
+            <div class="d-flex justify-between items-center p-3" style="background: rgba(37, 99, 235, 0.05); border: 1.5px solid rgba(37, 99, 235, 0.25); border-radius: 8px;">
+              <div>
+                <div style="font-weight: 700; color: #1e40af; font-size: 13px;">🎯 Tek Sınav Analizi Seçildi: "${escapeHtml(singleExam.sinavAdi)}"</div>
+                <div style="font-size: 11.5px; color: #3b82f6;">Öğrencinin eksik kazanımları ve 7 günlük etüt tablosu yapay zekâ ile üretilecek.</div>
+              </div>
+              <button class="btn btn-primary shadow-glow font-bold" onclick="window.app.executeStudentModalAiAnalysis('${student.id}', ['${singleExam.id}'], false)">
+                🤖 Bu Sınav İçin AI Raporu Oluştur
+              </button>
+            </div>
+          `;
+        }
+        return;
+      }
+
+      // 2 veya daha fazla sınav seçildiğinde (Çoklu Sınav Karşılaştırmalı Rapor)
+      const exactMultiReport = studentReports.find((r) => {
+        const ids = r.kullanilanSinavIdler || [];
+        return ids.length === checkedExamIds.length && ids.every((id) => checkedExamIds.includes(id));
+      });
+
+      footerContainer.innerHTML = `
+        <div class="d-flex flex-column gap-2 p-3" style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(168, 85, 247, 0.08) 100%); border: 1.5px solid rgba(99, 102, 241, 0.35); border-radius: 8px;">
+          <div class="d-flex justify-between items-center" style="flex-wrap: wrap; gap: 8px;">
+            <div>
+              <div style="font-weight: 800; color: #4338ca; font-size: 13.5px;">
+                📊 Çoklu Sınav Karşılaştırması (${checkedExamIds.length} Sınav Seçili)
+              </div>
+              <div style="font-size: 11.5px; color: #4b5563; margin-top: 2px;">
+                • Sınavlar arası net/puan gelişim eğrisi hesaplanır.<br/>
+                • <strong>Özellikle aynı kazanımlarda yapılan hatalar (kronik eksikler) tespit edilir.</strong><br/>
+                • 7 günlük etüt matrisinde 1. Etütlere bu ortak eksikler öncelikle yerleştirilir.
+              </div>
+            </div>
+            <div class="d-flex gap-2 items-center">
+              ${exactMultiReport ? `
+                <button class="btn btn-success font-bold" onclick="window.app.closeModal('student-ai-report-select-modal'); window.app.viewReportDetail('${exactMultiReport.id}')">
+                  📄 Mevcut Karşılaştırma Raporunu Aç
+                </button>
+                <button class="btn btn-primary font-bold shadow-glow" onclick="window.app.executeStudentModalAiAnalysis('${student.id}', ${JSON.stringify(checkedExamIds).replace(/"/g, '&quot;')}, true)">
+                  🔄 Yeniden Karşılaştır (AI)
+                </button>
+              ` : `
+                <button class="btn btn-primary btn-lg shadow-glow font-bold" onclick="window.app.executeStudentModalAiAnalysis('${student.id}', ${JSON.stringify(checkedExamIds).replace(/"/g, '&quot;')}, false)">
+                  📊 Seçili ${checkedExamIds.length} Sınavı Karşılaştır & Rapor Üret
+                </button>
+              `}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    executeStudentModalAiAnalysis(studentId, examIds, forceRecreate = false) {
+      this.closeModal("student-ai-report-select-modal");
+      const state = store.getState();
+      const student = state.students.find((s) => s.id === studentId);
+      if (!student) return;
+
+      const chosenExams = state.exams.filter((e) => examIds.includes(e.id));
+      if (chosenExams.length === 0) return;
+
+      if (!forceRecreate && chosenExams.length === 1) {
+        const studentReports = state.reports.filter((r) => r && (r.ogrenciId === studentId || (r.ogrenciAdSoyad && r.ogrenciAdSoyad.toLowerCase() === student.adSoyad.toLowerCase())));
+        const existingRep = studentReports.find((r) => (r.kullanilanSinavIdler || []).includes(chosenExams[0].id) || r.sinavId === chosenExams[0].id);
+        if (existingRep) {
+          this.viewReportDetail(existingRep.id);
+          return;
+        }
+      }
+
+      return this.runDirectAiAnalysis(student, chosenExams);
+    }
+
+    viewLatestStudentReport(studentId) {
+      this.openStudentAiReportModal(studentId);
     }
 
     deleteStudentConfirm(studentId) {

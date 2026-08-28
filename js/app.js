@@ -319,6 +319,264 @@ class App {
     this.renderModalContainer(modalHtml);
   }
 
+  openStudentAiReportModal(studentId) {
+    const state = store.getState();
+    const student = state.students.find((s) => s.id === studentId);
+    if (!student) {
+      showToast("Öğrenci kaydı bulunamadı.", "warning");
+      return;
+    }
+
+    const studentExams = state.exams.filter((e) => e.ogrenciId === studentId);
+    if (studentExams.length === 0) {
+      showToast(`"${student.adSoyad}" için kayıtlı sınav bulunamadı. Lütfen önce sınav PDF'i yükleyin.`, "info");
+      this.openUploadPdfModal();
+      return;
+    }
+
+    const studentName = (student.adSoyad || "").toLowerCase();
+    const studentReports = state.reports.filter((r) => r && (r.ogrenciId === studentId || (r.ogrenciAdSoyad && r.ogrenciAdSoyad.toLowerCase() === studentName)));
+    const latestExam = studentExams[studentExams.length - 1];
+
+    const modalHtml = `
+      <div class="modal-backdrop" id="student-ai-report-select-modal" onclick="if(event.target === this) window.app.closeModal('student-ai-report-select-modal')">
+        <div class="modal-dialog animate-scale-up" style="max-width: 680px;">
+          <div class="modal-header" style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #ffffff; border-top-left-radius: var(--radius-lg); border-top-right-radius: var(--radius-lg); padding: 18px 22px;">
+            <div>
+              <div class="d-flex items-center gap-2">
+                <span style="font-size: 20px;">🤖</span>
+                <h3 class="modal-title" style="color: #ffffff; font-size: 18px;">${student.adSoyad} — AI Sınav Raporu Seçimi</h3>
+              </div>
+              <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">
+                ${student.sinif}. Sınıf / ${student.sube} • Okul No: #${student.numara || "-"} • Toplam <strong>${studentExams.length} Kayıtlı Sınav</strong>
+              </div>
+            </div>
+            <button class="modal-close" style="color: #ffffff;" onclick="window.app.closeModal('student-ai-report-select-modal')">&times;</button>
+          </div>
+
+          <div class="modal-body" style="padding: 20px 22px;">
+            <!-- REHBER BİLGİ KUTUSU -->
+            <div class="student-ai-modal-guide mb-3" style="background: rgba(37, 99, 235, 0.05); border: 1px solid rgba(37, 99, 235, 0.2); border-radius: 8px; padding: 12px 14px;">
+              <div style="font-size: 12.5px; color: #1e3a8a; font-weight: 600; margin-bottom: 4px;">📌 Sınav Raporlama ve Karşılaştırma Rehberi:</div>
+              <ul style="margin: 0; padding-left: 18px; font-size: 11.5px; color: #334155; line-height: 1.5;">
+                <li><strong>Tek Sınav Seçildiğinde:</strong> Eğer o sınavın sistemde hazır AI raporu varsa anında açılır, yoksa yeni analiz üretilir.</li>
+                <li><strong>Birden Fazla Sınav Seçildiğinde:</strong> Seçili sınavlar karşılaştırılarak net/başarı gelişim seyri hesaplanır ve <strong>özellikle aynı kazanımlarda yapılan ortak hatalara (kronik eksiklere)</strong> odaklı 7 günlük çalışma tablosu oluşturulur.</li>
+              </ul>
+            </div>
+
+            <!-- HIZLI SEÇİM BUTONLARI -->
+            <div class="d-flex justify-between items-center mb-2" style="flex-wrap: wrap; gap: 8px;">
+              <label class="form-label mb-0" style="font-weight: 700; font-size: 13px;">Analiz Edilecek Sınav(ları) Seçiniz:</label>
+              <div class="btn-group">
+                <button type="button" class="btn btn-xs btn-outline" onclick="window.app.selectAllStudentModalExams('${student.id}', true)">Tümünü Seç (${studentExams.length})</button>
+                <button type="button" class="btn btn-xs btn-outline" onclick="window.app.selectAllStudentModalExams('${student.id}', false)">Seçimi Temizle</button>
+                <button type="button" class="btn btn-xs btn-primary" onclick="window.app.selectLatestStudentModalExam('${student.id}', '${latestExam.id}')">En Son Sınav</button>
+              </div>
+            </div>
+
+            <!-- SINAV LİSTESİ -->
+            <div class="student-ai-exam-list-container" style="max-height: 280px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; padding: 6px; background: var(--bg-main);">
+              ${studentExams.map((e, index) => {
+                const singleReport = studentReports.find((r) => (r.kullanilanSinavIdler || []).length <= 1 && (r.kullanilanSinavIdler || []).includes(e.id));
+                const multiReport = studentReports.find((r) => (r.kullanilanSinavIdler || []).length > 1 && (r.kullanilanSinavIdler || []).includes(e.id));
+                const isLatest = index === studentExams.length - 1;
+
+                let reportStatusBadge = "";
+                if (singleReport) {
+                  reportStatusBadge = `<span class="badge badge-success font-bold" style="font-size: 10px; cursor: pointer;" onclick="event.stopPropagation(); window.app.closeModal('student-ai-report-select-modal'); window.app.viewReportDetail('${singleReport.id}')" title="Hazır AI Raporunu Aç">✓ Hazır AI Raporu Var (Aç ↗)</span>`;
+                } else if (multiReport) {
+                  reportStatusBadge = `<span class="badge badge-info font-bold" style="font-size: 10px; cursor: pointer;" onclick="event.stopPropagation(); window.app.closeModal('student-ai-report-select-modal'); window.app.viewReportDetail('${multiReport.id}')" title="Karşılaştırmalı Raporu Aç">📊 Karşılaştırma Raporunda (Aç ↗)</span>`;
+                } else {
+                  reportStatusBadge = `<span class="badge badge-light" style="font-size: 10px; color: #64748b;">⚪ Henüz Rapor Yok</span>`;
+                }
+
+                return `
+                  <label class="student-modal-exam-row ${isLatest ? 'selected-highlight' : ''}" id="st-modal-exam-row-${e.id}" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; margin-bottom: 4px; background: #ffffff; border: 1.5px solid ${isLatest ? 'var(--primary)' : 'var(--border-color)'}; border-radius: 6px; cursor: pointer; transition: all 0.2s;">
+                    <div class="d-flex items-center gap-3" style="flex: 1;">
+                      <input type="checkbox" class="student-modal-exam-chk" id="chk-st-modal-exam-${e.id}" value="${e.id}" ${isLatest ? 'checked' : ''} onchange="window.app.updateStudentAiModalFooter('${student.id}')" />
+                      <div>
+                        <div style="font-weight: 700; font-size: 13px; color: var(--text-dark);">${e.sinavAdi}</div>
+                        <div style="font-size: 11.5px; color: var(--text-muted);">
+                          📅 Tarih: ${formatDate(e.tarih)} • 🎯 ${e.tur === "kazanimli" ? "Kazanımlı" : "Kazanımsız"}
+                        </div>
+                      </div>
+                    </div>
+                    <div class="d-flex items-center gap-2" style="text-align: right;">
+                      <div>
+                        <span class="badge badge-primary font-bold" style="font-size: 11px;">${e.toplamNet || "-"} Net</span>
+                        ${e.puan ? `<span class="badge badge-warning font-bold" style="font-size: 11px; margin-left: 2px;">${e.puan}</span>` : ""}
+                      </div>
+                      <div>${reportStatusBadge}</div>
+                    </div>
+                  </label>
+                `;
+              }).join("")}
+            </div>
+
+            <!-- DİNAMİK AKSİYON ALANI (Seçime Göre Canlı Güncellenir) -->
+            <div id="student-ai-modal-footer-action" class="mt-3">
+              <!-- Javascript ile doldurulur -->
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    this.renderModalContainer(modalHtml);
+    this.updateStudentAiModalFooter(studentId);
+  }
+
+  selectAllStudentModalExams(studentId, checked) {
+    const checkboxes = document.querySelectorAll(".student-modal-exam-chk");
+    checkboxes.forEach((cb) => {
+      cb.checked = checked;
+      const row = document.getElementById("st-modal-exam-row-" + cb.value);
+      if (row) row.style.borderColor = checked ? "var(--primary)" : "var(--border-color)";
+    });
+    this.updateStudentAiModalFooter(studentId);
+  }
+
+  selectLatestStudentModalExam(studentId, latestExamId) {
+    const checkboxes = document.querySelectorAll(".student-modal-exam-chk");
+    checkboxes.forEach((cb) => {
+      cb.checked = (cb.value === latestExamId);
+      const row = document.getElementById("st-modal-exam-row-" + cb.value);
+      if (row) row.style.borderColor = (cb.value === latestExamId) ? "var(--primary)" : "var(--border-color)";
+    });
+    this.updateStudentAiModalFooter(studentId);
+  }
+
+  updateStudentAiModalFooter(studentId) {
+    const footerContainer = document.getElementById("student-ai-modal-footer-action");
+    if (!footerContainer) return;
+
+    const state = store.getState();
+    const student = state.students.find((s) => s.id === studentId);
+    if (!student) return;
+
+    const checkedCheckboxes = Array.from(document.querySelectorAll(".student-modal-exam-chk:checked"));
+    const checkedExamIds = checkedCheckboxes.map((cb) => cb.value);
+    const chosenExams = state.exams.filter((e) => checkedExamIds.includes(e.id));
+    const studentReports = state.reports.filter((r) => r && (r.ogrenciId === studentId || (r.ogrenciAdSoyad && r.ogrenciAdSoyad.toLowerCase() === student.adSoyad.toLowerCase())));
+
+    // Checkbox row border style sync
+    document.querySelectorAll(".student-modal-exam-chk").forEach((cb) => {
+      const row = document.getElementById("st-modal-exam-row-" + cb.value);
+      if (row) row.style.borderColor = cb.checked ? "var(--primary)" : "var(--border-color)";
+    });
+
+    if (checkedExamIds.length === 0) {
+      footerContainer.innerHTML = `
+        <div class="d-flex justify-between items-center p-3" style="background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px;">
+          <span style="color: #64748b; font-size: 12.5px;">İşlem yapmak için yukarıdan en az 1 sınav seçin.</span>
+          <button class="btn btn-primary" disabled>Lütfen Sınav Seçin</button>
+        </div>
+      `;
+      return;
+    }
+
+    if (checkedExamIds.length === 1) {
+      const singleExam = chosenExams[0];
+      const existingReport = studentReports.find((r) => (r.kullanilanSinavIdler || []).includes(singleExam.id) || r.sinavId === singleExam.id);
+
+      if (existingReport) {
+        footerContainer.innerHTML = `
+          <div class="d-flex flex-column gap-2 p-3" style="background: rgba(16, 185, 129, 0.06); border: 1.5px solid #10b981; border-radius: 8px;">
+            <div class="d-flex justify-between items-center" style="flex-wrap: wrap; gap: 8px;">
+              <div>
+                <div style="font-weight: 700; color: #065f46; font-size: 13px;">✓ Bu Sınava Ait Hazır AI Raporu Mevcut!</div>
+                <div style="font-size: 11.5px; color: #047857;">"${singleExam.sinavAdi}" sınavının karne ve çalışma programı raporu hazır.</div>
+              </div>
+              <div class="d-flex gap-2">
+                <button class="btn btn-outline btn-sm font-bold" onclick="window.app.executeStudentModalAiAnalysis('${student.id}', ['${singleExam.id}'], true)" title="Yapay zekâ ile analizi yeniden çalıştır">
+                  🔄 Yeniden Analiz Et
+                </button>
+                <button class="btn btn-success shadow-glow font-bold" onclick="window.app.closeModal('student-ai-report-select-modal'); window.app.viewReportDetail('${existingReport.id}')">
+                  📄 Mevcut AI Raporunu Aç (${singleExam.sinavAdi})
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+      } else {
+        footerContainer.innerHTML = `
+          <div class="d-flex justify-between items-center p-3" style="background: rgba(37, 99, 235, 0.05); border: 1.5px solid rgba(37, 99, 235, 0.25); border-radius: 8px;">
+            <div>
+              <div style="font-weight: 700; color: #1e40af; font-size: 13px;">🎯 Tek Sınav Analizi Seçildi: "${singleExam.sinavAdi}"</div>
+              <div style="font-size: 11.5px; color: #3b82f6;">Öğrencinin eksik kazanımları ve 7 günlük etüt tablosu yapay zekâ ile üretilecek.</div>
+            </div>
+            <button class="btn btn-primary shadow-glow font-bold" onclick="window.app.executeStudentModalAiAnalysis('${student.id}', ['${singleExam.id}'], false)">
+              🤖 Bu Sınav İçin AI Raporu Oluştur
+            </button>
+          </div>
+        `;
+      }
+      return;
+    }
+
+    // 2 veya daha fazla sınav seçildiğinde (Çoklu Sınav Karşılaştırmalı Rapor)
+    const exactMultiReport = studentReports.find((r) => {
+      const ids = r.kullanilanSinavIdler || [];
+      return ids.length === checkedExamIds.length && ids.every((id) => checkedExamIds.includes(id));
+    });
+
+    footerContainer.innerHTML = `
+      <div class="d-flex flex-column gap-2 p-3" style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(168, 85, 247, 0.08) 100%); border: 1.5px solid rgba(99, 102, 241, 0.35); border-radius: 8px;">
+        <div class="d-flex justify-between items-center" style="flex-wrap: wrap; gap: 8px;">
+          <div>
+            <div style="font-weight: 800; color: #4338ca; font-size: 13.5px;">
+              📊 Çoklu Sınav Karşılaştırması (${checkedExamIds.length} Sınav Seçili)
+            </div>
+            <div style="font-size: 11.5px; color: #4b5563; margin-top: 2px;">
+              • Sınavlar arası net/puan gelişim eğrisi hesaplanır.<br/>
+              • <strong>Özellikle aynı kazanımlarda yapılan hatalar (kronik eksikler) tespit edilir.</strong><br/>
+              • 7 günlük etüt matrisinde 1. Etütlere bu ortak eksikler öncelikle yerleştirilir.
+            </div>
+          </div>
+          <div class="d-flex gap-2 items-center">
+            ${exactMultiReport ? `
+              <button class="btn btn-success font-bold" onclick="window.app.closeModal('student-ai-report-select-modal'); window.app.viewReportDetail('${exactMultiReport.id}')">
+                📄 Mevcut Karşılaştırma Raporunu Aç
+              </button>
+              <button class="btn btn-primary font-bold shadow-glow" onclick="window.app.executeStudentModalAiAnalysis('${student.id}', ${JSON.stringify(checkedExamIds).replace(/"/g, '&quot;')}, true)">
+                🔄 Yeniden Karşılaştır (AI)
+              </button>
+            ` : `
+              <button class="btn btn-primary btn-lg shadow-glow font-bold" onclick="window.app.executeStudentModalAiAnalysis('${student.id}', ${JSON.stringify(checkedExamIds).replace(/"/g, '&quot;')}, false)">
+                📊 Seçili ${checkedExamIds.length} Sınavı Karşılaştır & Rapor Üret
+              </button>
+            `}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  executeStudentModalAiAnalysis(studentId, examIds, forceRecreate = false) {
+    this.closeModal("student-ai-report-select-modal");
+    const state = store.getState();
+    const student = state.students.find((s) => s.id === studentId);
+    if (!student) return;
+
+    const chosenExams = state.exams.filter((e) => examIds.includes(e.id));
+    if (chosenExams.length === 0) return;
+
+    if (!forceRecreate && chosenExams.length === 1) {
+      const studentReports = state.reports.filter((r) => r && (r.ogrenciId === studentId || (r.ogrenciAdSoyad && r.ogrenciAdSoyad.toLowerCase() === student.adSoyad.toLowerCase())));
+      const existingRep = studentReports.find((r) => (r.kullanilanSinavIdler || []).includes(chosenExams[0].id) || r.sinavId === chosenExams[0].id);
+      if (existingRep) {
+        this.viewReportDetail(existingRep.id);
+        return;
+      }
+    }
+
+    return this.runDirectAiAnalysis(student, chosenExams);
+  }
+
+  viewLatestStudentReport(studentId) {
+    this.openStudentAiReportModal(studentId);
+  }
+
   deleteStudentConfirm(studentId) {
     const student = store.getState().students.find((s) => s.id === studentId);
     if (!student) return;

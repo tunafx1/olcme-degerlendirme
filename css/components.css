@@ -1342,3 +1342,36 @@
 .exam-group-students-table-wrap {
   overflow-x: auto;
 }
+
+/* ÖĞRENCİ AI RAPORU SEÇİM MODAL BİLEŞENLERİ */
+.student-modal-exam-row {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+}
+
+.student-modal-exam-row:hover {
+  background: #f8fafc !important;
+  border-color: #94a3b8 !important;
+  transform: translateX(2px);
+}
+
+.student-modal-exam-row.selected-highlight {
+  border-color: var(--primary) !important;
+  background: rgba(37, 99, 235, 0.02) !important;
+}
+
+.student-modal-exam-chk {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--primary);
+}
+
+.student-ai-modal-guide ul li {
+  margin-bottom: 4px;
+}
+
+.student-ai-modal-guide ul li:last-child {
+  margin-bottom: 0;
+}
+

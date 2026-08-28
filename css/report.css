@@ -630,3 +630,42 @@
     print-color-adjust: exact !important;
   }
 }
+
+/* ÇOKLU SINAV KARŞILAŞTIRMA RAPORU STİLLERİ */
+.report-comparison-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.report-recurring-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.recurring-card {
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.recurring-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3.5px;
+  background: #ef4444;
+}
+
+.recurring-exams-bar {
+  line-height: 1.35;
+}
+
+.recurring-exams-bar .badge {
+  display: inline-block;
+  white-space: nowrap;
+}
+

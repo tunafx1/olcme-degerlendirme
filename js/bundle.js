@@ -2007,6 +2007,55 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       }
     }
 
+    static downloadStandaloneHTML(reportElementId, fileName = "Sinav_Raporu.html") {
+      const element = document.getElementById(reportElementId);
+      if (!element) return;
+
+      const htmlContent = `<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${fileName.replace(".html", "")}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://olcme-degerlendirme.vercel.app/css/index.css">
+  <link rel="stylesheet" href="https://olcme-degerlendirme.vercel.app/css/report.css">
+  <style>
+    @page { size: A4 portrait; margin: 8mm 10mm; }
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; box-sizing: border-box; }
+    body { background: #f1f5f9; margin: 0; padding: 20px; font-family: 'Inter', system-ui, sans-serif; }
+    .report-a4-sheet { max-width: 820px; margin: 0 auto; }
+    .report-a4-page { background: #ffffff; box-shadow: 0 4px 20px rgba(0,0,0,0.08); margin-bottom: 24px; border-radius: 8px; }
+    @media print {
+      body { background: #ffffff !important; padding: 0 !important; }
+      .report-a4-page { box-shadow: none !important; border-radius: 0 !important; margin: 0 !important; page-break-after: always !important; break-after: page !important; }
+      .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="no-print" style="max-width: 820px; margin: 0 auto 16px auto; display: flex; justify-content: space-between; align-items: center; background: #0f172a; color: #ffffff; padding: 12px 20px; border-radius: 8px;">
+    <div><strong>📑 Kurumsal Sınav Analiz Raporu</strong></div>
+    <button onclick="window.print()" style="background: #2563eb; color: #ffffff; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 700; cursor: pointer;">🖨️ PDF Olarak Kaydet / Yazdır</button>
+  </div>
+  <div class="report-a4-sheet">
+    ${element.innerHTML}
+  </div>
+</body>
+</html>`;
+
+      const blob = new Blob([htmlContent], { type: "text/html;charset=utf-8" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      showToast("✓ Bağımsız HTML Raporu başarıyla indirildi!", "success");
+    }
+
     static printReport(reportElementId) {
       const element = document.getElementById(reportElementId);
       if (!element) return window.print();
@@ -2032,13 +2081,18 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         <head>
           <meta charset="UTF-8">
           <title>Sınav Analiz ve Gelişim Raporu</title>
+          <link rel="preconnect" href="https://fonts.googleapis.com">
+          <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
           <link rel="stylesheet" href="./css/index.css">
           <link rel="stylesheet" href="./css/report.css">
           <style>
-            @page { size: A4 portrait; margin: 0; }
-            body { background: #ffffff !important; margin: 0; padding: 0; font-family: 'Inter', sans-serif; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+            @page { size: A4 portrait; margin: 8mm 10mm; }
+            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; box-sizing: border-box; }
+            body { background: #ffffff !important; margin: 0; padding: 0; font-family: 'Inter', system-ui, sans-serif; color: #0f172a; }
             .report-a4-sheet { max-width: 100% !important; width: 100% !important; margin: 0 !important; }
-            .report-a4-page { max-width: 100% !important; width: 100% !important; height: 297mm !important; min-height: 297mm !important; max-height: 297mm !important; padding: 14mm 16mm 10mm 16mm !important; box-sizing: border-box !important; box-shadow: none !important; border: none !important; background: #ffffff !important; page-break-after: always !important; break-after: page !important; }
+            .report-a4-page { max-width: 100% !important; width: 100% !important; min-height: 275mm !important; max-height: 280mm !important; padding: 10mm 12mm 8mm 12mm !important; box-sizing: border-box !important; box-shadow: none !important; border: none !important; background: #ffffff !important; page-break-after: always !important; break-after: page !important; display: flex !important; flex-direction: column !important; justify-content: space-between !important; }
+            .report-a4-page:last-child { page-break-after: auto !important; break-after: auto !important; }
             .report-table th, .report-schedule-matrix th { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
             .report-badge-title, .badge, .schedule-etut-box, .schedule-stat-box, .schedule-coaching-tip { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           </style>
@@ -5054,6 +5108,12 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       PDFService.exportToPDF("printable-report-sheet", `${student.adSoyad.replace(/\s+/g, "_")}_Sinav_Raporu.pdf`);
     }
 
+    downloadActiveReportHTML() {
+      if (!this.currentActiveReport) return;
+      const { student } = this.currentActiveReport;
+      PDFService.downloadStandaloneHTML("printable-report-sheet", `${student.adSoyad.replace(/\s+/g, "_")}_LGS_Raporu.html`);
+    }
+
     printActiveReport() { PDFService.printReport("printable-report-sheet"); }
 
     viewReportDetail(reportId) {
@@ -5070,8 +5130,9 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             <div class="modal-header">
               <h3 class="modal-title">Öğrenci Sınav Karnesi & Raporu (${student.adSoyad})</h3>
               <div class="btn-group">
-                <button class="btn btn-sm btn-outline font-bold" onclick="window.app.printActiveReport()" title="Vektörel Yazıcı Çıktısı veya Vektörel PDF Olarak Kaydet">🖨️ Vektörel Yazdır / PDF</button>
-                <button class="btn btn-sm btn-primary font-bold shadow-glow" onclick="window.app.downloadActiveReportPDF()" title="Seçilebilir ve Kopyalanabilir Metin Katmanlı 300 DPI PDF İndir">📑 PDF İndir (Seçilebilir Metin)</button>
+                <button class="btn btn-sm btn-outline font-bold" onclick="window.app.downloadActiveReportHTML()" title="Bağımsız HTML Raporu İndir (.html)">🌐 HTML İndir</button>
+                <button class="btn btn-sm btn-primary font-bold shadow-glow" onclick="window.app.printActiveReport()" title="Kusursuz Vektörel PDF Kaydet / Yazdır (Sıfır kayma, gerçek seçilebilir metin)">🖨️ PDF Olarak Kaydet / Yazdır</button>
+                <button class="btn btn-sm btn-secondary font-bold" onclick="window.app.downloadActiveReportPDF()" title="Doğrudan İndir (Seçilebilir Metinli)">📑 Doğrudan İndir</button>
                 <button class="modal-close" onclick="window.app.closeModal('report-view-modal')">&times;</button>
               </div>
             </div>

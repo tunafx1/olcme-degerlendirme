@@ -167,6 +167,20 @@
     }
   }
 
+  function formatDateTime(dateStr) {
+    if (!dateStr) return "-";
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return dateStr;
+      const datePart = d.toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric" });
+      const hours = String(d.getHours()).padStart(2, "0");
+      const minutes = String(d.getMinutes()).padStart(2, "0");
+      return `${datePart}, ${hours}:${minutes}`;
+    } catch (e) {
+      return dateStr;
+    }
+  }
+
   function calculateNet(dogru = 0, yanlis = 0, examType = "lgs") {
     const d = Number(dogru) || 0;
     const y = Number(yanlis) || 0;
@@ -2889,8 +2903,17 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     state.exams.forEach((e) => { if (e.toplamNet) { totalNet += Number(e.toplamNet); count++; } });
     const avgNet = count > 0 ? (totalNet / count).toFixed(1) : "0.0";
 
-    const recentExams = state.exams.slice(0, 5);
-    const recentReports = state.reports.slice(0, 4);
+    const recentExams = [...state.exams].sort((a, b) => {
+      const tA = new Date(a.createdAt || a.tarih || 0).getTime() || 0;
+      const tB = new Date(b.createdAt || b.tarih || 0).getTime() || 0;
+      return tB - tA;
+    }).slice(0, 5);
+
+    const recentReports = [...state.reports].sort((a, b) => {
+      const tA = a.createdAt ? Number(a.createdAt) : (new Date(a.olusturmaTarihi || 0).getTime() || 0);
+      const tB = b.createdAt ? Number(b.createdAt) : (new Date(b.olusturmaTarihi || 0).getTime() || 0);
+      return tB - tA; // Yeniden eskiye
+    }).slice(0, 6);
 
     // Kayıtlı benzersiz sınavları topla
     const uniqueExamMap = new Map();
@@ -3043,7 +3066,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
                       <div class="report-mini-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
                       <div class="report-mini-info">
                         <div class="report-mini-name">${rep.ogrenciAdSoyad || "Öğrenci"}</div>
-                        <div class="report-mini-meta"><span>${formatDate(rep.olusturmaTarihi)}</span><span>•</span><span>${rep.kullanilanSinavIdler ? rep.kullanilanSinavIdler.length : 1} Sınav</span></div>
+                        <div class="report-mini-meta"><span>${formatDateTime(rep.createdAt || rep.olusturmaTarihi)}</span><span>•</span><span>${rep.kullanilanSinavIdler ? rep.kullanilanSinavIdler.length : 1} Sınav</span></div>
                       </div>
                       <div class="report-mini-actions">
                         <button class="btn btn-sm btn-outline" onclick="window.app.viewReportDetail('${rep.id}')">İncele</button>
@@ -3342,6 +3365,12 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
 
   function renderReportsView() {
     const state = store.getState();
+    const sortedReports = [...state.reports].sort((a, b) => {
+      const tA = a.createdAt ? Number(a.createdAt) : (new Date(a.olusturmaTarihi || 0).getTime() || 0);
+      const tB = b.createdAt ? Number(b.createdAt) : (new Date(b.olusturmaTarihi || 0).getTime() || 0);
+      return tB - tA; // Yeniden eskiye
+    });
+
     return `
       <div class="view-container animate-fade-in">
         <div class="view-header">
@@ -3353,8 +3382,8 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           <div class="card-body p-0">
             <div class="table-responsive">
               <table class="data-table">
-                <thead><tr><th>Öğrenci Bilgisi</th><th>Sınav Sayısı</th><th>AI Sağlayıcı</th><th>Tarih</th><th>Eksik Sayısı</th><th style="text-align: right;">İşlemler</th></tr></thead>
-                <tbody id="reports-tbody">${renderReportRows(state.reports, state.students)}</tbody>
+                <thead><tr><th>Öğrenci Bilgisi</th><th>Sınav Sayısı</th><th>AI Sağlayıcı</th><th>Tarih & Saat</th><th>Eksik Sayısı</th><th style="text-align: right;">İşlemler</th></tr></thead>
+                <tbody id="reports-tbody">${renderReportRows(sortedReports, state.students)}</tbody>
               </table>
             </div>
           </div>
@@ -3376,7 +3405,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           <td><div class="font-bold text-dark cursor-pointer" onclick="window.app.viewReportDetail('${rep.id}')">${studentName}</div><div style="font-size: 12px; color: var(--text-muted);">${rep.sinif || ""}</div></td>
           <td><span class="badge ${examCount > 1 ? "badge-primary" : "badge-secondary"}">${examCount > 1 ? `📈 ${examCount} Sınav` : `📊 ${examCount} Sınav`}</span></td>
           <td>${rep.aiSaglayici || "OpenAI ChatGPT"}</td>
-          <td>${formatDate(rep.olusturmaTarihi)}</td>
+          <td>${formatDateTime(rep.createdAt || rep.olusturmaTarihi)}</td>
           <td><span class="badge badge-warning font-bold">${rep.eksikKonular ? rep.eksikKonular.length : 0} Eksik</span></td>
           <td style="text-align: right;">
             <div class="btn-group">
@@ -4462,7 +4491,8 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             kurumId: state.institution.id,
             kullanilanSinavIdler: [exam.id],
             aiSaglayici: state.aiConfig.provider === "openai" ? "OpenAI ChatGPT (GPT-4o Mini)" : "Google Gemini 1.5 Flash",
-            olusturmaTarihi: new Date().toISOString().split("T")[0],
+            olusturmaTarihi: new Date().toISOString(),
+            createdAt: Date.now(),
             eksikKonular: aiRes.eksikKonular || [],
             genelYorum: aiRes.genelYorum || "",
             gelisimAnalizi: "",
@@ -4561,7 +4591,13 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const student = state.students.find((s) => s.id === studentId);
       if (!student) return;
       const studentExams = state.exams.filter((e) => e.ogrenciId === studentId);
-      const studentReports = state.reports.filter((r) => r.ogrenciId === studentId);
+      const studentReports = state.reports
+        .filter((r) => r.ogrenciId === studentId)
+        .sort((a, b) => {
+          const tA = a.createdAt ? Number(a.createdAt) : (new Date(a.olusturmaTarihi || 0).getTime() || 0);
+          const tB = b.createdAt ? Number(b.createdAt) : (new Date(b.olusturmaTarihi || 0).getTime() || 0);
+          return tB - tA; // Yeniden eskiye
+        });
 
       const modalHtml = `
         <div class="modal-backdrop" id="student-profile-modal" onclick="if(event.target === this) window.app.closeModal('student-profile-modal')">
@@ -4638,7 +4674,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
                           <div class="report-mini-info">
                             <div class="report-mini-name">${escapeHtml(rep.ogrenciAdSoyad || student.adSoyad)} — AI Raporu</div>
                             <div class="report-mini-meta">
-                              <span>📅 ${formatDate(rep.olusturmaTarihi)}</span>
+                              <span>📅 ${formatDateTime(rep.createdAt || rep.olusturmaTarihi)}</span>
                               <span>•</span>
                               <span>📊 ${repExamCount} Sınav Analizi</span>
                             </div>
@@ -5045,7 +5081,8 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           kurumId: state.institution.id,
           kullanilanSinavIdler: chosenExams.map((e) => e.id),
           aiSaglayici: aiResult._isSimulated ? "Akıllı Pedagojik AI Motoru" : providerName,
-          olusturmaTarihi: new Date().toISOString().split("T")[0],
+          olusturmaTarihi: new Date().toISOString(),
+          createdAt: Date.now(),
           eksikKonular: aiResult.eksikKonular || [],
           genelYorum: aiResult.genelYorum || "",
           gelisimAnalizi: aiResult.gelisimAnalizi || "",

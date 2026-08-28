@@ -1874,13 +1874,13 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
 
       if (!page1El && !rootEl) return false;
 
-      showToast("Yüksek çözünürlüklü A4 PDF hazırlanıyor...", "info", 2000);
+      showToast("Kristal netliğinde (300 DPI) kurumsal A4 PDF hazırlanıyor...", "info", 2000);
 
       try {
         const { jsPDF } = window.jspdf || window;
-        const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+        const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
 
-        const renderDomToPdf = async (domEl, isFirst = false) => {
+        const renderCanvasFromDom = async (domEl) => {
           const tempWrap = document.createElement("div");
           tempWrap.style.position = "fixed";
           tempWrap.style.left = "-9999px";
@@ -1896,9 +1896,12 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           target.style.borderRadius = "0";
           target.style.margin = "0";
           target.style.width = "794px";
+          target.style.maxWidth = "794px";
+          target.style.minHeight = "1120px";
+          target.style.background = "#ffffff";
 
           const canvas = await window.html2canvas(target, {
-            scale: 2.0,
+            scale: 3.0, // 300 DPI retina netliği
             useCORS: true,
             allowTaint: false,
             backgroundColor: "#ffffff",
@@ -1908,47 +1911,33 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           });
 
           document.body.removeChild(tempWrap);
-
-          const imgWidthMm = 210;
-          const pageHeightMm = 297;
-          const imgHeightMm = (canvas.height * imgWidthMm) / canvas.width;
-          const imgData = canvas.toDataURL("image/jpeg", 0.95);
-
-          if (imgHeightMm <= pageHeightMm + 2) {
-            if (!isFirst) pdf.addPage();
-            pdf.addImage(imgData, "JPEG", 0, 0, imgWidthMm, imgHeightMm);
-          } else {
-            // Sayfa A4'ten uzunsa oranı ASLA bozma, doğal çoklu sayfa olarak ekle
-            let heightLeftMm = imgHeightMm;
-            let positionY = 0;
-
-            if (!isFirst) pdf.addPage();
-            pdf.addImage(imgData, "JPEG", 0, positionY, imgWidthMm, imgHeightMm);
-            heightLeftMm -= pageHeightMm;
-
-            while (heightLeftMm > 2) {
-              positionY -= pageHeightMm;
-              pdf.addPage();
-              pdf.addImage(imgData, "JPEG", 0, positionY, imgWidthMm, imgHeightMm);
-              heightLeftMm -= pageHeightMm;
-            }
-          }
+          return canvas;
         };
 
         if (page1El) {
-          await renderDomToPdf(page1El, true);
+          // Sayfa 1: Tam A4 sayfa render (Lossless PNG)
+          const c1 = await renderCanvasFromDom(page1El);
+          const imgData1 = c1.toDataURL("image/png");
+          pdf.addImage(imgData1, "PNG", 0, 0, 210, 297, undefined, "FAST");
+
+          // Sayfa 2: Tam A4 sayfa render (Lossless PNG)
           if (page2El) {
-            await renderDomToPdf(page2El, false);
+            pdf.addPage();
+            const c2 = await renderCanvasFromDom(page2El);
+            const imgData2 = c2.toDataURL("image/png");
+            pdf.addImage(imgData2, "PNG", 0, 0, 210, 297, undefined, "FAST");
           }
         } else {
-          await renderDomToPdf(rootEl, true);
+          const c = await renderCanvasFromDom(rootEl);
+          const imgData = c.toDataURL("image/png");
+          pdf.addImage(imgData, "PNG", 0, 0, 210, 297, undefined, "FAST");
         }
 
         pdf.save(fileName);
-        showToast("✓ Kurumsal PDF başarıyla indirildi!", "success");
+        showToast("✓ Kurumsal 2 Sayfalık PDF başarıyla indirildi!", "success");
         return true;
       } catch (err) {
-        console.warn("[PDF Engine] jsPDF hatası, yazdırma modalı açılıyor:", err);
+        console.warn("[PDF Engine] jsPDF hatası, yazdırma penceresine geçiliyor:", err);
         this.printReport(reportElementId);
         return false;
       }
@@ -2112,9 +2101,17 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           const page1El = tempContainer.querySelector("#report-page-1") || tempContainer.querySelector(".report-page-1");
           const page2El = tempContainer.querySelector("#report-page-2") || tempContainer.querySelector(".report-page-2");
 
-          const renderAndAddToBulkPdf = async (domEl, isFirst) => {
+          const renderBulkPage = async (domEl) => {
+            domEl.style.width = "794px";
+            domEl.style.maxWidth = "794px";
+            domEl.style.minHeight = "1120px";
+            domEl.style.boxShadow = "none";
+            domEl.style.borderRadius = "0";
+            domEl.style.margin = "0";
+            domEl.style.background = "#ffffff";
+
             const c = await window.html2canvas(domEl, {
-              scale: 2.0,
+              scale: 3.0,
               useCORS: true,
               allowTaint: false,
               backgroundColor: "#ffffff",
@@ -2122,37 +2119,21 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
               scrollX: 0,
               logging: false
             });
-            const imgWidth = 210;
-            const pageHeight = 297;
-            const imgHeight = (c.height * imgWidth) / c.width;
-            const imgData = c.toDataURL("image/jpeg", 0.93);
-
-            if (imgHeight <= pageHeight + 2) {
-              if (!isFirst) pdf.addPage();
-              pdf.addImage(imgData, "JPEG", 0, 0, imgWidth, imgHeight);
-            } else {
-              let heightLeft = imgHeight;
-              let pos = 0;
-              if (!isFirst) pdf.addPage();
-              pdf.addImage(imgData, "JPEG", 0, pos, imgWidth, imgHeight);
-              heightLeft -= pageHeight;
-              while (heightLeft > 2) {
-                pos -= pageHeight;
-                pdf.addPage();
-                pdf.addImage(imgData, "JPEG", 0, pos, imgWidth, imgHeight);
-                heightLeft -= pageHeight;
-              }
-            }
+            return c.toDataURL("image/png");
           };
 
           try {
             if (page1El) {
-              await renderAndAddToBulkPdf(page1El, isFirstPage);
+              if (!isFirstPage) pdf.addPage();
               isFirstPage = false;
+              const imgData1 = await renderBulkPage(page1El);
+              pdf.addImage(imgData1, "PNG", 0, 0, 210, 297, undefined, "FAST");
             }
 
             if (page2El) {
-              await renderAndAddToBulkPdf(page2El, false);
+              pdf.addPage();
+              const imgData2 = await renderBulkPage(page2El);
+              pdf.addImage(imgData2, "PNG", 0, 0, 210, 297, undefined, "FAST");
             }
           } catch (studentErr) {
             console.warn(`[Bulk PDF] ${item.student.adSoyad} render uyarısı:`, studentErr);
@@ -2235,50 +2216,55 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
 
           eksikHtml = `
             <div class="report-section mb-2">
-              <div class="report-section-header" style="border-color: ${themeColor}; margin-bottom: 6px;">
+              <div class="report-section-header" style="border-color: ${themeColor}; margin-bottom: 4px; padding-left: 6px;">
                 <div class="d-flex justify-between items-center w-full">
-                  <h3 style="color: ${themeColor}; font-size: 13px; margin: 0;">🎯 Tespit Edilen Eksik Konu ve Kazanımlar (${totalDeficits} Kazanım)</h3>
-                  <span class="badge badge-warning font-bold" style="font-size: 10px;">Öncelikli Telafi Listesi</span>
+                  <h3 style="color: ${themeColor}; font-size: 12px; margin: 0;">🎯 Tespit Edilen Eksik Konu ve Kazanımlar (${totalDeficits} Kazanım)</h3>
+                  <span class="badge badge-warning font-bold" style="font-size: 9px; padding: 2px 6px;">Öncelikli Telafi Listesi</span>
                 </div>
               </div>
-              <div class="report-deficiencies-dense-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
-                ${Object.entries(groupedByDers).map(([ders, items]) => `
-                  <div class="report-dense-subject-card" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 6px 8px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; padding-bottom: 3px; margin-bottom: 4px;">
-                      <strong style="color: ${themeColor}; font-size: 11px;">${ders}</strong>
-                      <span class="badge badge-secondary" style="font-size: 9px; padding: 1px 5px;">${items.length} Eksik</span>
+              <div class="report-deficiencies-dense-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
+                ${Object.entries(groupedByDers).map(([ders, items]) => {
+                  const displayItems = items.slice(0, 3);
+                  const remainingCount = items.length - displayItems.length;
+                  return `
+                    <div class="report-dense-subject-card" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 4px 6px;">
+                      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px; margin-bottom: 3px;">
+                        <strong style="color: ${themeColor}; font-size: 10.5px;">${ders}</strong>
+                        <span class="badge badge-secondary" style="font-size: 8.5px; padding: 1px 4px;">${items.length} Eksik</span>
+                      </div>
+                      <ul style="margin: 0; padding-left: 12px; font-size: 9.5px; color: #334155; line-height: 1.25;">
+                        ${displayItems.map((it) => `
+                          <li style="margin-bottom: 2px;">
+                            <span>${it.konu}</span>
+                            ${it.seviye === "kritik" ? `<span class="badge badge-danger" style="font-size: 7.5px; padding: 0 2px; margin-left: 2px;">Kritik</span>` : ""}
+                          </li>
+                        `).join("")}
+                        ${remainingCount > 0 ? `<li style="list-style: none; margin-top: 2px;"><span style="color: #64748b; font-size: 8.5px; font-weight: 600;">+ ${remainingCount} diğer eksik kazanım</span></li>` : ""}
+                      </ul>
                     </div>
-                    <ul style="margin: 0; padding-left: 14px; font-size: 10px; color: #334155; line-height: 1.35;">
-                      ${items.map((it) => `
-                        <li style="margin-bottom: 2px;">
-                          <span>${it.konu}</span>
-                          ${it.seviye === "kritik" ? `<span class="badge badge-danger" style="font-size: 8px; padding: 0 3px; margin-left: 2px;">Kritik</span>` : ""}
-                        </li>
-                      `).join("")}
-                    </ul>
-                  </div>
-                `).join("")}
+                  `;
+                }).join("")}
               </div>
             </div>
           `;
         } else {
           eksikHtml = `
             <div class="report-section mb-2">
-              <div class="report-section-header" style="border-color: ${themeColor}; margin-bottom: 6px;">
-                <h3 style="color: ${themeColor}; font-size: 13px; margin: 0;">🎯 Tespit Edilen Eksik Konu ve Kazanımlar</h3>
-                <span class="report-section-sub" style="font-size: 10.5px;">Öncelik sırasına göre telafi edilmesi gereken konu başlıkları</span>
+              <div class="report-section-header" style="border-color: ${themeColor}; margin-bottom: 4px; padding-left: 6px;">
+                <h3 style="color: ${themeColor}; font-size: 12px; margin: 0;">🎯 Tespit Edilen Eksik Konu ve Kazanımlar</h3>
+                <span class="report-section-sub" style="font-size: 10px;">Öncelik sırasına göre telafi edilmesi gereken konu başlıkları</span>
               </div>
-              <div class="report-deficiencies-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+              <div class="report-deficiencies-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
                 ${report.eksikKonular.map((ek) => `
-                  <div class="report-deficiency-item" style="padding: 6px 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px;">
+                  <div class="report-deficiency-item" style="padding: 4px 8px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px;">
                     <div class="report-deficiency-header mb-1" style="display: flex; justify-content: space-between; align-items: center;">
-                      <span class="report-deficiency-subject" style="font-size: 11px; font-weight: 700; color: #0f172a;">${ek.ders}</span>
-                      <span class="badge ${ek.seviye === "kritik" ? "badge-danger font-bold" : ek.seviye === "orta" ? "badge-warning font-bold" : "badge-info font-bold"}" style="font-size: 9px; padding: 2px 5px;">
-                        ${ek.seviye === "kritik" ? "Kritik Eksik" : ek.seviye === "orta" ? "Orta Düzey" : "Hafif Eksik"}
+                      <span class="report-deficiency-subject" style="font-size: 10.5px; font-weight: 700; color: #0f172a;">${ek.ders}</span>
+                      <span class="badge ${ek.seviye === "kritik" ? "badge-danger font-bold" : ek.seviye === "orta" ? "badge-warning font-bold" : "badge-info font-bold"}" style="font-size: 8.5px; padding: 1px 4px;">
+                        ${ek.seviye === "kritik" ? "Kritik" : ek.seviye === "orta" ? "Orta" : "Hafif"}
                       </span>
                     </div>
-                    <div class="report-deficiency-title" style="font-size: 11px; font-weight: 600; color: #1e293b; line-height: 1.3;">${ek.konu}</div>
-                    ${ek.oneri ? `<div class="report-deficiency-tip" style="font-size: 10px; color: #475569; background: #ffffff; padding: 2px 6px; border-radius: 3px; border: 1px solid #e2e8f0; margin-top: 3px;">💡 <strong>Öneri:</strong> ${ek.oneri}</div>` : ""}
+                    <div class="report-deficiency-title" style="font-size: 10px; font-weight: 600; color: #1e293b; line-height: 1.25;">${ek.konu}</div>
+                    ${ek.oneri ? `<div class="report-deficiency-tip" style="font-size: 9.5px; color: #475569; background: #ffffff; padding: 2px 5px; border-radius: 2px; border: 1px solid #e2e8f0; margin-top: 2px;">💡 ${ek.oneri}</div>` : ""}
                   </div>
                 `).join("")}
               </div>
@@ -2464,8 +2450,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
 
               <div class="report-footer">
                 <div class="report-footer-left">
-                  <span>AI Sağlayıcı: <strong>${report.aiSaglayici || "OpenAI ChatGPT"}</strong></span><br>
-                  <span style="color: #94a3b8;">* Haftalık etüt matrisi öğrencinin sınavdaki eksik kazanımlarına odaklanarak özel üretilmiştir.</span>
+                  <span style="color: #64748b; font-size: 10.5px;">* Haftalık etüt matrisi öğrencinin deneme sınavındaki eksik kazanımlarına göre özel olarak planlanmıştır.</span>
                 </div>
                 <div class="report-footer-right">
                   <div class="report-signature-block">

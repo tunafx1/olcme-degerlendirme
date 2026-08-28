@@ -3294,15 +3294,15 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     const app = window.app || {};
     const expandedKeys = app.expandedExamKeys || new Set();
 
-    return groups.map((group) => {
-      const gKey = group.groupKey || group.key;
-      const isExpanded = expandedKeys.has(gKey);
+    return groups.map((group, gIdx) => {
+      const examNameKey = (group.sinavAdi || "").trim().toLowerCase();
+      const isExpanded = expandedKeys.has(examNameKey);
       const safeExamName = escapeHtml(group.sinavAdi);
       const sortedStudentExams = [...group.exams].sort((a, b) => (Number(b.toplamNet) || 0) - (Number(a.toplamNet) || 0));
 
       return `
-        <div class="exam-group-card ${isExpanded ? "expanded" : ""}" id="exam-group-card-${gKey}" data-exam-key="${escapeHtml(group.key)}">
-          <div class="exam-group-header" onclick="window.app.toggleExamGroup('${gKey}')">
+        <div class="exam-group-card ${isExpanded ? "expanded" : ""}" id="exam-group-card-${gIdx}" data-group-index="${gIdx}">
+          <div class="exam-group-header" onclick="window.app.toggleExamGroup(${gIdx})">
             <div class="exam-group-info">
               <div class="exam-group-title-row">
                 <h3 class="exam-group-title">${safeExamName}</h3>
@@ -3322,7 +3322,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
               <button class="btn btn-sm btn-outline font-bold" onclick="window.app.exportBulkExamReportsByName('${safeExamName}')" title="Bu sınavın tüm öğrencileri için AI analizli toplu rapor PDF'i indir">
                 📥 Toplu PDF
               </button>
-              <button class="btn btn-sm btn-primary font-bold shadow-sm" onclick="event.stopPropagation(); window.app.toggleExamGroup('${gKey}')">
+              <button class="btn btn-sm btn-primary font-bold shadow-sm" onclick="event.stopPropagation(); window.app.toggleExamGroup(${gIdx})">
                 <span>👥 Öğrenciler (${group.totalStudents})</span>
                 <svg class="exam-group-toggle-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
               </button>
@@ -3332,7 +3332,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             </div>
           </div>
 
-          <div class="exam-group-body" id="exam-group-body-${gKey}">
+          <div class="exam-group-body" id="exam-group-body-${gIdx}">
             <div class="exam-group-students-table-wrap">
               <table class="data-table">
                 <thead>
@@ -5216,29 +5216,52 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       this.navigate("aiAnalysis");
     }
 
-    toggleExamGroup(groupKey) {
-      if (this.expandedExamKeys.has(groupKey)) {
-        this.expandedExamKeys.delete(groupKey);
-      } else {
-        this.expandedExamKeys.add(groupKey);
+    toggleExamGroup(indexOrKey) {
+      if (typeof indexOrKey === "number") {
+        const card = document.getElementById("exam-group-card-" + indexOrKey);
+        if (card) {
+          const willBeExpanded = !card.classList.contains("expanded");
+          card.classList.toggle("expanded", willBeExpanded);
+          const groups = this.getCalculatedExamGroups();
+          const targetGroup = groups[indexOrKey];
+          if (targetGroup) {
+            const key = (targetGroup.sinavAdi || "").trim().toLowerCase();
+            if (willBeExpanded) {
+              this.expandedExamKeys.add(key);
+            } else {
+              this.expandedExamKeys.delete(key);
+            }
+          }
+          return;
+        }
       }
 
-      const card = document.getElementById("exam-group-card-" + groupKey);
+      const key = String(indexOrKey).trim().toLowerCase();
+      if (this.expandedExamKeys.has(key)) {
+        this.expandedExamKeys.delete(key);
+      } else {
+        this.expandedExamKeys.add(key);
+      }
+
+      const card = document.getElementById("exam-group-card-" + key);
       if (card) {
-        card.classList.toggle("expanded", this.expandedExamKeys.has(groupKey));
+        card.classList.toggle("expanded", this.expandedExamKeys.has(key));
       } else {
         this.refreshExamsContainer();
       }
     }
 
     toggleAllExamGroups() {
+      const cards = document.querySelectorAll(".exam-group-card");
+      const anyOpen = Array.from(cards).some((c) => c.classList.contains("expanded"));
+      cards.forEach((c) => c.classList.toggle("expanded", !anyOpen));
+
       const groups = this.getCalculatedExamGroups();
-      if (this.expandedExamKeys.size > 0) {
+      if (anyOpen) {
         this.expandedExamKeys.clear();
       } else {
-        groups.forEach((g) => this.expandedExamKeys.add(g.groupKey || g.key));
+        groups.forEach((g) => this.expandedExamKeys.add((g.sinavAdi || "").trim().toLowerCase()));
       }
-      this.refreshExamsContainer();
     }
 
     onExamSearchInput(val) {

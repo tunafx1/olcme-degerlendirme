@@ -290,20 +290,21 @@
           } else {
             this.app = window.firebase.initializeApp(config);
           }
-          
+
+          // NOT: Firebase Compat SDK v10, named database desteklemiyor.
+          // firestore("olcme-uygulama") çağrısı hata fırlatır.
+          // SDK onSnapshot listener'ları yanlış (default) DB'ye bağlanır.
+          // Bu yüzden SDK yerine REST tabanlı canlı senkronizasyon kullanıyoruz.
+          // SDK db objesi sadece depolama için tutulur (named DB gerektirmeyen işlemler).
           try {
-            this.db = window.firebase.app().firestore(targetDb);
+            this.db = window.firebase.firestore ? window.firebase.firestore() : null;
           } catch (dbErr) {
-            try {
-              this.db = window.firebase.firestore(this.app, targetDb);
-            } catch (err2) {
-              this.db = window.firebase.firestore ? window.firebase.firestore() : null;
-            }
+            this.db = null;
           }
-          
+
           this.storage = window.firebase.storage ? window.firebase.storage() : null;
           this.isInitialized = true;
-          console.log(`[Firebase] Firestore (${targetDb}) veritabanına başarıyla bağlanıldı.`);
+          console.log(`[Firebase] REST tabanlı bağlantı aktif. Hedef DB: ${targetDb}`);
 
           if (storeInstance) {
             this.setupRealtimeListeners(storeInstance);
@@ -318,74 +319,53 @@
     }
 
     static setupRealtimeListeners(storeInstance) {
-      // Önceki listener'ları temizle
-      this.unsubscribers.forEach((unsub) => { try { unsub(); } catch (e) {} });
-      this.unsubscribers = [];
+      // Firebase Compat SDK v10 named database (olcme-uygulama) için onSnapshot DESTEKLEMİYOR.
+      // Bu nedenle REST API tabanlı polling kullanıyoruz.
+      // SDK onSnapshot yerine: periyodik REST sorgusu + visibility/focus event'i.
+      // Bu, kota dostu (60sn aralık) ve cihazlar arası senkronizasyonu sağlar.
 
-      if (!this.isInitialized || !this.db) return;
+      // Önceki interval'leri temizle
+      if (this._pollIntervalId) {
+        clearInterval(this._pollIntervalId);
+        this._pollIntervalId = null;
+      }
+      if (this._visibilityHandler) {
+        document.removeEventListener("visibilitychange", this._visibilityHandler);
+        this._visibilityHandler = null;
+      }
 
-      const collections = [
-        { name: "ogrenciler", stateKey: "students", storageKey: APP_CONFIG.storageKeys.STUDENTS, event: "STUDENTS_SYNCED" },
-        { name: "sinavlar", stateKey: "exams", storageKey: APP_CONFIG.storageKeys.EXAMS, event: "EXAMS_SYNCED" },
-        { name: "raporlar", stateKey: "reports", storageKey: APP_CONFIG.storageKeys.REPORTS, event: "REPORTS_SYNCED" }
-      ];
+      if (!storeInstance) return;
 
-      collections.forEach(({ name, stateKey, storageKey, event }) => {
-        try {
-          const unsub = this.db.collection(name).onSnapshot(
-            (snapshot) => {
-              this.lastQuotaExceeded = false;
-              this.lastSyncTime = new Date();
-              const docs = [];
-              snapshot.forEach((doc) => {
-                docs.push({ id: doc.id, ...doc.data() });
-              });
-
-              // Sadece veride gerçek bir değişiklik varsa güncelle
-              const currentJson = JSON.stringify(storeInstance.state[stateKey]);
-              const newJson = JSON.stringify(docs);
-              if (currentJson !== newJson) {
-                storeInstance.state[stateKey] = docs;
-                storeInstance.saveToStorage(storageKey, docs);
-                storeInstance.notify(event, docs);
-                console.log(`[Firestore Canlı Senkronizasyon] ${name} güncellendi (${docs.length} kayıt).`);
-              }
-            },
-            (err) => {
-              if (err.code === "resource-exhausted" || (err.message && err.message.includes("Quota"))) {
-                this.lastQuotaExceeded = true;
-                console.warn("[Firestore Quota Warning] Günlük okuma kotası aşıldı (RESOURCE_EXHAUSTED).");
-              } else {
-                console.warn(`[Firestore onSnapshot ${name}]:`, err.message);
-              }
-            }
-          );
-          this.unsubscribers.push(unsub);
-        } catch (e) {
-          console.warn(`[Firestore setupRealtimeListeners ${name}]:`, e);
-        }
+      // İlk açılışta hemen bir kez senkronize et
+      this.syncAllFromFirestore(storeInstance).then((changed) => {
+        if (changed) storeInstance.notify("FIRESTORE_SYNCED", {});
       });
 
-      // Kurum dinleyicisi
-      try {
-        const unsubKurum = this.db.collection("kurumlar").onSnapshot(
-          (snapshot) => {
-            snapshot.forEach((doc) => {
-              const data = doc.data();
-              if (data && JSON.stringify(data) !== JSON.stringify(storeInstance.state.institution)) {
-                storeInstance.state.institution = { ...storeInstance.state.institution, ...data };
-                storeInstance.saveToStorage(APP_CONFIG.storageKeys.INSTITUTION, storeInstance.state.institution);
-                if (data.temaRengi) storeInstance.applyTheme(data.temaRengi);
-                storeInstance.notify("INSTITUTION_SYNCED", storeInstance.state.institution);
-              }
+      // 60 saniyede bir arka plan senkronizasyonu (kota dostu)
+      this._pollIntervalId = setInterval(() => {
+        // Modal açıksa veya kota dolmuşsa pas geç
+        const isModalOpen = !!document.querySelector(".modal-backdrop");
+        if (isModalOpen || this.lastQuotaExceeded) return;
+        this.syncAllFromFirestore(storeInstance).then((changed) => {
+          if (changed) storeInstance.notify("FIRESTORE_SYNCED", {});
+        });
+      }, 60000);
+
+      // Kullanıcı sekmeye döndüğünde senkronize et
+      this._visibilityHandler = () => {
+        if (document.visibilityState === "visible" && !this.lastQuotaExceeded) {
+          const now = Date.now();
+          if (!this._lastVisibilitySync || (now - this._lastVisibilitySync > 30000)) {
+            this._lastVisibilitySync = now;
+            this.syncAllFromFirestore(storeInstance).then((changed) => {
+              if (changed) storeInstance.notify("FIRESTORE_SYNCED", {});
             });
-          },
-          (err) => {
-            if (err.code === "resource-exhausted") this.lastQuotaExceeded = true;
           }
-        );
-        this.unsubscribers.push(unsubKurum);
-      } catch (e) {}
+        }
+      };
+      document.addEventListener("visibilitychange", this._visibilityHandler);
+
+      console.log("[Firebase] REST polling tabanlı senkronizasyon aktif (60sn aralık + visibilitychange).");
     }
 
     static jsToFirestoreFields(obj) {
@@ -3224,15 +3204,24 @@ const page1El = tempContainer.querySelector("#report-page-1") || tempContainer.q
     }
 
     deleteStudent(studentId) {
+      // Silinecek sınav ve raporların ID'lerini Firestore silmeden önce al
+      const examsToDelete = this.state.exams.filter((e) => e.ogrenciId === studentId);
+      const reportsToDelete = this.state.reports.filter((r) => r.ogrenciId === studentId);
+
       this.state.students = this.state.students.filter((s) => s.id !== studentId);
       this.state.exams = this.state.exams.filter((e) => e.ogrenciId !== studentId);
       this.state.reports = this.state.reports.filter((r) => r.ogrenciId !== studentId);
       this.saveToStorage(APP_CONFIG.storageKeys.STUDENTS, this.state.students);
       this.saveToStorage(APP_CONFIG.storageKeys.EXAMS, this.state.exams);
       this.saveToStorage(APP_CONFIG.storageKeys.REPORTS, this.state.reports);
+
+      // Firestore cascade silme — öğrenci + bağlı tüm sınavlar + raporlar
       FirebaseService.deleteDocument("ogrenciler", studentId);
+      examsToDelete.forEach((ex) => FirebaseService.deleteDocument("sinavlar", ex.id));
+      reportsToDelete.forEach((rep) => FirebaseService.deleteDocument("raporlar", rep.id));
+
       this.notify("STUDENTS_UPDATED", this.state.students);
-      showToast("Öğrenci silindi.", "info");
+      showToast(`Öğrenci ve bağlı ${examsToDelete.length} sınav, ${reportsToDelete.length} rapor silindi.`, "info");
     }
 
     deleteAllStudents() {
@@ -4290,24 +4279,8 @@ const page1El = tempContainer.querySelector("#report-page-1") || tempContainer.q
       store.subscribe((state, event, data) => this.handleStateUpdate(state, event, data));
       this.renderCurrentView();
       this.updateSidebarActiveState();
-
-      // OTOMATİK BULUT SENKRONİZASYONU (Uygulama açılışında tek seferlik veri çekme)
-      FirebaseService.syncAllFromFirestore(store).then((synced) => {
-        if (synced) this.renderCurrentView();
-      });
-
-      // Akıllı Sekme Odaklanma Senkronizasyonu (Kullanıcı başka sekmeden dönünce 5 dakikada en fazla 1 kez)
-      window.addEventListener("focus", () => {
-        const now = Date.now();
-        if (!this._lastFocusSync || (now - this._lastFocusSync > 300000)) {
-          this._lastFocusSync = now;
-          FirebaseService.syncAllFromFirestore(store).then((synced) => {
-            if (synced && !["aiConfig", "firebaseConfig", "settings"].includes(store.getState().currentTab)) {
-              this.renderCurrentView();
-            }
-          });
-        }
-      });
+      // Not: setupRealtimeListeners Store constructor'ında FirebaseService.init(config, store) ile çağrılır.
+      // Açılışta ilk senkronizasyon ve polling listener'ları orada devreye girer.
     }
 
     async uploadAllToFirebase() {
@@ -4542,6 +4515,7 @@ const page1El = tempContainer.querySelector("#report-page-1") || tempContainer.q
     }
 
     handleStateUpdate(state, event, data) {
+      // FIRESTORE_SYNCED event'i gelince UI'ı yenile (polling veya visibility senkronizasyonu)
       this.renderCurrentView();
       this.updateSidebarActiveState();
       this.updateNavbarAiStatus();
@@ -6788,63 +6762,10 @@ const page1El = tempContainer.querySelector("#report-page-1") || tempContainer.q
       };
       store.saveToStorage(APP_CONFIG.storageKeys.FIREBASE_CONFIG, config);
       store.state.firebaseConfig = config;
-      FirebaseService.init(config);
-      showToast(`✓ Firebase (${config.databaseId}) ayarları kaydedildi ve bağlandı.`, "success");
+      // KÖK NEDEN DÜZELTMESİ: store instance geçiriliyor ki onSnapshot/polling kurulsun
+      FirebaseService.init(config, store);
+      showToast(`✓ Firebase (${config.databaseId}) ayarları kaydedildi. REST polling başlatıldı.`, "success");
       this.renderCurrentView();
-    }
-
-    async uploadAllToFirebase() {
-      const state = store.getState();
-      if (!FirebaseService.isInitialized || !FirebaseService.db) {
-        FirebaseService.init(state.firebaseConfig || DEFAULT_FIREBASE_CONFIG);
-      }
-      if (!FirebaseService.db) {
-        showToast("Firebase henüz başlatılamadı. Lütfen bağlantı ayarlarını kontrol edin.", "warning");
-        return;
-      }
-
-      showToast("Tüm yerel veriler Firebase Firestore'a aktarılıyor...", "info");
-      try {
-        let count = 0;
-        // 1. Kurum
-        if (state.institution) {
-          await FirebaseService.saveDocument("kurumlar", state.institution.id || "kurum_default", state.institution);
-          count++;
-        }
-
-        // 2. Öğrenciler
-        for (const st of state.students) {
-          await FirebaseService.saveDocument("ogrenciler", st.id, st);
-          count++;
-        }
-
-        // 3. Sınavlar
-        for (const ex of state.exams) {
-          await FirebaseService.saveDocument("sinavlar", ex.id, ex);
-          count++;
-        }
-
-        // 4. Raporlar
-        for (const rep of state.reports) {
-          await FirebaseService.saveDocument("raporlar", rep.id, rep);
-          count++;
-        }
-
-        showToast(`🎉 Harika! ${count} adet kayıt (Öğrenciler, Sınavlar, Raporlar) Firestore (olcme-uygulama) veritabanına başarıyla yüklendi!`, "success", 6000);
-      } catch (err) {
-        showToast("Buluta yükleme hatası: " + err.message, "error");
-      }
-    }
-
-    async syncAllFromFirebase() {
-      showToast("Firebase'den veriler indiriliyor...", "info");
-      const success = await FirebaseService.syncAllFromFirestore(store);
-      if (success) {
-        showToast("✓ Firebase Firestore'daki tüm veriler başarıyla eşitlendi!", "success");
-        this.renderCurrentView();
-      } else {
-        showToast("Firebase senkronizasyonunda bir sorun oluştu.", "error");
-      }
     }
   }
 

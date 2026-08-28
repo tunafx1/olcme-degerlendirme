@@ -1880,7 +1880,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         const { jsPDF } = window.jspdf || window;
         const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
 
-        const renderPageToCanvas = async (domEl) => {
+        const renderDomToPdf = async (domEl, isFirst = false) => {
           const tempWrap = document.createElement("div");
           tempWrap.style.position = "fixed";
           tempWrap.style.left = "-9999px";
@@ -1908,28 +1908,40 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           });
 
           document.body.removeChild(tempWrap);
-          return canvas;
+
+          const imgWidthMm = 210;
+          const pageHeightMm = 297;
+          const imgHeightMm = (canvas.height * imgWidthMm) / canvas.width;
+          const imgData = canvas.toDataURL("image/jpeg", 0.95);
+
+          if (imgHeightMm <= pageHeightMm + 2) {
+            if (!isFirst) pdf.addPage();
+            pdf.addImage(imgData, "JPEG", 0, 0, imgWidthMm, imgHeightMm);
+          } else {
+            // Sayfa A4'ten uzunsa oranı ASLA bozma, doğal çoklu sayfa olarak ekle
+            let heightLeftMm = imgHeightMm;
+            let positionY = 0;
+
+            if (!isFirst) pdf.addPage();
+            pdf.addImage(imgData, "JPEG", 0, positionY, imgWidthMm, imgHeightMm);
+            heightLeftMm -= pageHeightMm;
+
+            while (heightLeftMm > 2) {
+              positionY -= pageHeightMm;
+              pdf.addPage();
+              pdf.addImage(imgData, "JPEG", 0, positionY, imgWidthMm, imgHeightMm);
+              heightLeftMm -= pageHeightMm;
+            }
+          }
         };
 
         if (page1El) {
-          // Sayfa 1 Doğrudan Render
-          const canvas1 = await renderPageToCanvas(page1El);
-          const imgData1 = canvas1.toDataURL("image/jpeg", 0.95);
-          const imgHeight1 = (canvas1.height * 210) / canvas1.width;
-          pdf.addImage(imgData1, "JPEG", 0, 0, 210, Math.min(297, imgHeight1));
-
-          // Sayfa 2 Doğrudan Render
+          await renderDomToPdf(page1El, true);
           if (page2El) {
-            pdf.addPage();
-            const canvas2 = await renderPageToCanvas(page2El);
-            const imgData2 = canvas2.toDataURL("image/jpeg", 0.95);
-            const imgHeight2 = (canvas2.height * 210) / canvas2.width;
-            pdf.addImage(imgData2, "JPEG", 0, 0, 210, Math.min(297, imgHeight2));
+            await renderDomToPdf(page2El, false);
           }
         } else {
-          const canvas = await renderPageToCanvas(rootEl);
-          const imgData = canvas.toDataURL("image/jpeg", 0.95);
-          pdf.addImage(imgData, "JPEG", 0, 0, 210, 297);
+          await renderDomToPdf(rootEl, true);
         }
 
         pdf.save(fileName);
@@ -2100,22 +2112,47 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           const page1El = tempContainer.querySelector("#report-page-1") || tempContainer.querySelector(".report-page-1");
           const page2El = tempContainer.querySelector("#report-page-2") || tempContainer.querySelector(".report-page-2");
 
+          const renderAndAddToBulkPdf = async (domEl, isFirst) => {
+            const c = await window.html2canvas(domEl, {
+              scale: 2.0,
+              useCORS: true,
+              allowTaint: false,
+              backgroundColor: "#ffffff",
+              scrollY: 0,
+              scrollX: 0,
+              logging: false
+            });
+            const imgWidth = 210;
+            const pageHeight = 297;
+            const imgHeight = (c.height * imgWidth) / c.width;
+            const imgData = c.toDataURL("image/jpeg", 0.93);
+
+            if (imgHeight <= pageHeight + 2) {
+              if (!isFirst) pdf.addPage();
+              pdf.addImage(imgData, "JPEG", 0, 0, imgWidth, imgHeight);
+            } else {
+              let heightLeft = imgHeight;
+              let pos = 0;
+              if (!isFirst) pdf.addPage();
+              pdf.addImage(imgData, "JPEG", 0, pos, imgWidth, imgHeight);
+              heightLeft -= pageHeight;
+              while (heightLeft > 2) {
+                pos -= pageHeight;
+                pdf.addPage();
+                pdf.addImage(imgData, "JPEG", 0, pos, imgWidth, imgHeight);
+                heightLeft -= pageHeight;
+              }
+            }
+          };
+
           try {
             if (page1El) {
-              if (!isFirstPage) pdf.addPage();
+              await renderAndAddToBulkPdf(page1El, isFirstPage);
               isFirstPage = false;
-              const c1 = await window.html2canvas(page1El, { scale: 2.0, useCORS: true, allowTaint: false, backgroundColor: "#ffffff", scrollY: 0, scrollX: 0, logging: false });
-              const imgData1 = c1.toDataURL("image/jpeg", 0.93);
-              const h1 = (c1.height * 210) / c1.width;
-              pdf.addImage(imgData1, "JPEG", 0, 0, 210, Math.min(297, h1));
             }
 
             if (page2El) {
-              pdf.addPage();
-              const c2 = await window.html2canvas(page2El, { scale: 2.0, useCORS: true, allowTaint: false, backgroundColor: "#ffffff", scrollY: 0, scrollX: 0, logging: false });
-              const imgData2 = c2.toDataURL("image/jpeg", 0.93);
-              const h2 = (c2.height * 210) / c2.width;
-              pdf.addImage(imgData2, "JPEG", 0, 0, 210, Math.min(297, h2));
+              await renderAndAddToBulkPdf(page2El, false);
             }
           } catch (studentErr) {
             console.warn(`[Bulk PDF] ${item.student.adSoyad} render uyarısı:`, studentErr);
@@ -2184,28 +2221,70 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
 
       let eksikHtml = "";
       if (report.eksikKonular && report.eksikKonular.length > 0) {
-        eksikHtml = `
-          <div class="report-section mb-3">
-            <div class="report-section-header" style="border-color: ${themeColor}; margin-bottom: 8px;">
-              <h3 style="color: ${themeColor}; font-size: 14px;">🎯 Tespit Edilen Eksik Konu ve Kazanımlar</h3>
-              <span class="report-section-sub" style="font-size: 11px;">Öncelik sırasına göre telafi edilmesi gereken konu başlıkları</span>
-            </div>
-            <div class="report-deficiencies-grid" style="gap: 8px;">
-              ${report.eksikKonular.map((ek) => `
-                <div class="report-deficiency-item" style="padding: 8px 12px;">
-                  <div class="report-deficiency-header mb-1">
-                    <span class="report-deficiency-subject" style="font-size: 12px;">${ek.ders}</span>
-                    <span class="badge ${ek.seviye === "kritik" ? "badge-danger font-bold" : ek.seviye === "orta" ? "badge-warning font-bold" : "badge-info font-bold"}" style="font-size: 10px;">
-                      ${ek.seviye === "kritik" ? "Kritik Eksik" : ek.seviye === "orta" ? "Orta Düzey" : "Hafif Eksik"}
-                    </span>
-                  </div>
-                  <div class="report-deficiency-title" style="font-size: 12px; margin-bottom: 2px;">${ek.konu}</div>
-                  ${ek.oneri ? `<div class="report-deficiency-tip" style="font-size: 11px; margin-top: 4px;">💡 <strong>Öneri:</strong> ${ek.oneri}</div>` : ""}
+        const totalDeficits = report.eksikKonular.length;
+        const isDense = totalDeficits > 6;
+
+        if (isDense) {
+          // Çok sayıda eksik kazanım varsa (örn: 10-40 arası), ders bazında şık ve kompakt 2-sütunlu gruplama yap
+          const groupedByDers = {};
+          report.eksikKonular.forEach((ek) => {
+            const dName = ek.ders || "Genel";
+            if (!groupedByDers[dName]) groupedByDers[dName] = [];
+            groupedByDers[dName].push(ek);
+          });
+
+          eksikHtml = `
+            <div class="report-section mb-2">
+              <div class="report-section-header" style="border-color: ${themeColor}; margin-bottom: 6px;">
+                <div class="d-flex justify-between items-center w-full">
+                  <h3 style="color: ${themeColor}; font-size: 13px; margin: 0;">🎯 Tespit Edilen Eksik Konu ve Kazanımlar (${totalDeficits} Kazanım)</h3>
+                  <span class="badge badge-warning font-bold" style="font-size: 10px;">Öncelikli Telafi Listesi</span>
                 </div>
-              `).join("")}
+              </div>
+              <div class="report-deficiencies-dense-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                ${Object.entries(groupedByDers).map(([ders, items]) => `
+                  <div class="report-dense-subject-card" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 6px 8px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; padding-bottom: 3px; margin-bottom: 4px;">
+                      <strong style="color: ${themeColor}; font-size: 11px;">${ders}</strong>
+                      <span class="badge badge-secondary" style="font-size: 9px; padding: 1px 5px;">${items.length} Eksik</span>
+                    </div>
+                    <ul style="margin: 0; padding-left: 14px; font-size: 10px; color: #334155; line-height: 1.35;">
+                      ${items.map((it) => `
+                        <li style="margin-bottom: 2px;">
+                          <span>${it.konu}</span>
+                          ${it.seviye === "kritik" ? `<span class="badge badge-danger" style="font-size: 8px; padding: 0 3px; margin-left: 2px;">Kritik</span>` : ""}
+                        </li>
+                      `).join("")}
+                    </ul>
+                  </div>
+                `).join("")}
+              </div>
             </div>
-          </div>
-        `;
+          `;
+        } else {
+          eksikHtml = `
+            <div class="report-section mb-2">
+              <div class="report-section-header" style="border-color: ${themeColor}; margin-bottom: 6px;">
+                <h3 style="color: ${themeColor}; font-size: 13px; margin: 0;">🎯 Tespit Edilen Eksik Konu ve Kazanımlar</h3>
+                <span class="report-section-sub" style="font-size: 10.5px;">Öncelik sırasına göre telafi edilmesi gereken konu başlıkları</span>
+              </div>
+              <div class="report-deficiencies-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                ${report.eksikKonular.map((ek) => `
+                  <div class="report-deficiency-item" style="padding: 6px 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px;">
+                    <div class="report-deficiency-header mb-1" style="display: flex; justify-content: space-between; align-items: center;">
+                      <span class="report-deficiency-subject" style="font-size: 11px; font-weight: 700; color: #0f172a;">${ek.ders}</span>
+                      <span class="badge ${ek.seviye === "kritik" ? "badge-danger font-bold" : ek.seviye === "orta" ? "badge-warning font-bold" : "badge-info font-bold"}" style="font-size: 9px; padding: 2px 5px;">
+                        ${ek.seviye === "kritik" ? "Kritik Eksik" : ek.seviye === "orta" ? "Orta Düzey" : "Hafif Eksik"}
+                      </span>
+                    </div>
+                    <div class="report-deficiency-title" style="font-size: 11px; font-weight: 600; color: #1e293b; line-height: 1.3;">${ek.konu}</div>
+                    ${ek.oneri ? `<div class="report-deficiency-tip" style="font-size: 10px; color: #475569; background: #ffffff; padding: 2px 6px; border-radius: 3px; border: 1px solid #e2e8f0; margin-top: 3px;">💡 <strong>Öneri:</strong> ${ek.oneri}</div>` : ""}
+                  </div>
+                `).join("")}
+              </div>
+            </div>
+          `;
+        }
       }
 
       let scheduleMatrixHtml = "";

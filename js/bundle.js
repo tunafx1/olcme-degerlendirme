@@ -3797,7 +3797,8 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const wrongGains = [];
       (sinav.dersSonuclari || []).forEach((d) => {
         (d.konular || []).forEach((k) => {
-          if (k.durum === "yanlis" || k.durum === "bos") {
+          const y = k.basariYuzdesi !== undefined ? Number(k.basariYuzdesi) : (k.durum === "dogru" ? 100 : 0);
+          if (y < 100 && (k.durum === "yanlis" || k.durum === "bos" || (k.yanlis && k.yanlis > 0))) {
             wrongGains.push({ ders: d.ders, kazanim: k.kazanimAdi, durum: k.durum, yuzde: k.basariYuzdesi });
           }
         });
@@ -3885,7 +3886,10 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
               ${students.map((item, idx) => {
                 let wrongCount = 0;
                 (item.sinav.dersSonuclari || []).forEach((d) => {
-                  (d.konular || []).forEach((k) => { if (k.durum === "yanlis" || k.durum === "bos") wrongCount++; });
+                  (d.konular || []).forEach((k) => {
+                    const y = k.basariYuzdesi !== undefined ? Number(k.basariYuzdesi) : (k.durum === "dogru" ? 100 : 0);
+                    if (y < 100 && (k.durum === "yanlis" || k.durum === "bos" || (k.yanlis && k.yanlis > 0))) wrongCount++;
+                  });
                 });
                 const isAi = item.sinav.aiExtracted;
                 const isVerified = item.sinav.dogrulama ? item.sinav.dogrulama.gecerli : true;

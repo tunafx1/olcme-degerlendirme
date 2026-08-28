@@ -703,8 +703,9 @@
           const kDogru = parseInt(k.dogru, 10) || 0;
           const kYanlis = parseInt(k.yanlis, 10) || 0;
           const kBos = parseInt(k.bos, 10) || Math.max(0, sSayisi - kDogru - kYanlis);
-          const yuzde = typeof k.basariYuzdesi === "number" ? k.basariYuzdesi : (parseFloat(String(k.basariYuzdesi).replace(",", ".")) || (sSayisi > 0 ? Number(((kDogru / sSayisi) * 100).toFixed(0)) : 0));
-          const isEksik = yuzde < 100 || kYanlis > 0;
+          const rawYuzde = String(k.basariYuzdesi || "").replace("%", "").replace(",", ".").trim();
+          const yuzde = rawYuzde !== "" && !isNaN(parseFloat(rawYuzde)) ? parseFloat(rawYuzde) : (sSayisi > 0 ? Number(((kDogru / sSayisi) * 100).toFixed(0)) : 0);
+          const isEksik = yuzde < 100 || kYanlis > 0 || (sSayisi > 0 && kDogru < sSayisi) || k.durum === "yanlis" || k.durum === "bos";
           const durum = isEksik ? "yanlis" : (kBos === sSayisi && kDogru === 0 ? "bos" : "dogru");
           const seviye = yuzde < 50 ? "kritik" : (yuzde < 85 ? "orta" : "hafif");
 
@@ -713,23 +714,25 @@
             durum,
             soruSayisi: sSayisi,
             dogru: kDogru,
-            yanlis: kYanlis,
+            yanlis: kYanlis || (isEksik ? 1 : 0),
             bos: kBos,
             basariYuzdesi: yuzde,
             seviye
           };
         }).filter((k) => k.kazanimAdi && k.kazanimAdi.length > 2);
 
-        // KURAL: Eğer derste yanlış (>0) veya boş (>0) varsa, MUTLAKA eksik kazanım bulunmalıdır!
-        const wrongGainsCount = konular.filter((k) => k.durum === "yanlis" || k.durum === "bos" || (k.basariYuzdesi !== undefined && k.basariYuzdesi < 100)).length;
-        if ((yanlis > 0 || bos > 0) && wrongGainsCount === 0) {
+        // KURAL: Eğer derste yanlış (>0) veya boş (>0) varsa, eksik kazanım sayısı yanlış+boş sayısına denk olmalıdır!
+        const wrongGains = konular.filter((k) => k.durum === "yanlis" || k.durum === "bos" || (k.basariYuzdesi !== undefined && k.basariYuzdesi < 100));
+        const neededMissingCount = (yanlis || 0) + (bos > 0 ? 1 : 0);
+
+        if (neededMissingCount > 0 && wrongGains.length < neededMissingCount) {
           const dNameClean = d.ders?.trim() || "Genel";
-          const matchedCurriculumKey = Object.keys(CURRICULUM_DATA).find((k) => k.toLowerCase().includes(dNameClean.toLowerCase()) || dNameClean.toLowerCase().includes(k.toLowerCase()));
+          const matchedCurriculumKey = Object.keys(CURRICULUM_DATA).find((ck) => ck.toLowerCase().includes(dNameClean.toLowerCase()) || dNameClean.toLowerCase().includes(ck.toLowerCase()));
           const curriculumList = matchedCurriculumKey ? CURRICULUM_DATA[matchedCurriculumKey] : (CURRICULUM_DATA[dNameClean] || []);
-          
-          const missingCount = Math.max(1, yanlis || 1);
-          for (let i = 0; i < missingCount; i++) {
-            const currItem = curriculumList[i % (curriculumList.length || 1)] || { konu: `${dNameClean} Eksik Kazanımı`, kazanim: `${dNameClean} dersi ilgili soru kazanımı analiz edilir.` };
+          const missingCountToAdd = neededMissingCount - wrongGains.length;
+
+          for (let i = 0; i < missingCountToAdd; i++) {
+            const currItem = curriculumList[(wrongGains.length + i) % (curriculumList.length || 1)] || { konu: `${dNameClean} Eksik Kazanımı`, kazanim: `${dNameClean} dersi ilgili soru kazanımı analiz edilir.` };
             konular.push({
               kazanimAdi: `${currItem.konu}: ${currItem.kazanim}`,
               durum: yanlis > 0 ? "yanlis" : "bos",
@@ -971,10 +974,10 @@
         else if (/^(?:Din\s*Kültürü)(?:\.08|\s|$)/i.test(line)) currentDers = "Din Kültürü ve Ahlak Bilgisi";
 
         // Satırın sonundaki sayıları eşle: Konu Adı ... [Sayı] [Doğru] [Yanlış] [%]
-        const trailingMatch = line.match(/^[-•\s]*(.+?)\s+((?:\d+(?:[.,]\d+)?\s+){1,4}\d+(?:[.,]\d+)?)\s*$/);
+        const trailingMatch = line.match(/^[-•\s]*(.+?)\s+((?:%?\d+(?:[.,]\d+)?%?\s*){1,5})\s*$/);
         if (trailingMatch) {
           let kazanimText = trailingMatch[1].trim().replace(/^[-•\s]+/, "");
-          const numTokens = trailingMatch[2].trim().split(/\s+/);
+          const numTokens = trailingMatch[2].replace(/%/g, "").trim().split(/\s+/);
 
           if (numTokens.length >= 2 && kazanimText.length > 3) {
             // Son sayı BAŞARI YÜZDESİDİR (%)
@@ -985,8 +988,8 @@
             const yanlis = numTokens.length >= 4 ? (parseInt(numTokens[2], 10) || 0) : Math.max(0, soruSayisi - dogru);
 
             // KULLANICI KURALI: Yüzdelik değeri %100 değilse (yuzde < 100) EKSİK KAZANIM olarak kabul et!
-            const isEksik = yuzde < 100;
-            const durum = isEksik ? "yanlis" : "dogru";
+            const isEksik = yuzde < 100 || yanlis > 0 || (soruSayisi > 0 && dogru < soruSayisi);
+            const durum = isEksik ? "yanlis" : (dogru === 0 ? "bos" : "dogru");
 
             const isCategoryHeader = /^(?:KONUŞMA|OKUMA|YAZMA|SAYILAR VE İŞLEMLER|CEBİR|GEOMETRİ VE ÖLÇME|VERİ İŞLEME|OLASILIK|ATATÜRKÇÜLÜK|DEMOKRATİKLEŞME|KADER İNANCI|DİN VE HAYAT|HZ\. MUHAMMED|KUR'AN-I KERİM|Reading|Listening|Speaking)\b/i.test(kazanimText);
 
@@ -998,7 +1001,7 @@
                   durum,
                   soruSayisi,
                   dogru,
-                  yanlis,
+                  yanlis: yanlis || (isEksik ? 1 : 0),
                   basariYuzdesi: yuzde,
                   seviye: yuzde < 50 ? "kritik" : (yuzde < 85 ? "orta" : "hafif"),
                   isCategory: isCategoryHeader
@@ -1009,16 +1012,19 @@
         }
       }
 
-      // KURAL: Eğer herhangi bir derste yanlış (>0) veya boş (>0) varsa, mutlaka eksik kazanım bulunmalıdır!
+      // KURAL: Eğer herhangi bir derste yanlış (>0) veya boş (>0) varsa, eksik kazanım sayısı yanlış+boş sayısına denk olmalıdır!
       Object.keys(dersSonuclariMap).forEach((dKey) => {
         const dObj = dersSonuclariMap[dKey];
         const wrongGains = (dObj.konular || []).filter((k) => k.durum === "yanlis" || k.durum === "bos" || (k.basariYuzdesi !== undefined && k.basariYuzdesi < 100));
-        if ((dObj.yanlis > 0 || dObj.bos > 0) && wrongGains.length === 0) {
+        const neededMissingCount = (dObj.yanlis || 0) + (dObj.bos > 0 ? 1 : 0);
+
+        if (neededMissingCount > 0 && wrongGains.length < neededMissingCount) {
           const matchedCurriculumKey = Object.keys(CURRICULUM_DATA).find((k) => k.toLowerCase().includes(dKey.toLowerCase()) || dKey.toLowerCase().includes(k.toLowerCase()));
           const curriculumList = matchedCurriculumKey ? CURRICULUM_DATA[matchedCurriculumKey] : (CURRICULUM_DATA[dKey] || []);
-          const missingCount = Math.max(1, dObj.yanlis || 1);
-          for (let i = 0; i < missingCount; i++) {
-            const currItem = curriculumList[i % (curriculumList.length || 1)] || { konu: `${dKey} Eksik Kazanımı`, kazanim: `${dKey} ilgili soru kazanımı analiz edilir.` };
+          const missingCountToAdd = neededMissingCount - wrongGains.length;
+
+          for (let i = 0; i < missingCountToAdd; i++) {
+            const currItem = curriculumList[(wrongGains.length + i) % (curriculumList.length || 1)] || { konu: `${dKey} Eksik Kazanımı`, kazanim: `${dKey} ilgili soru kazanımı analiz edilir.` };
             dObj.konular.push({
               kazanimAdi: `${currItem.konu}: ${currItem.kazanim}`,
               durum: dObj.yanlis > 0 ? "yanlis" : "bos",
@@ -1137,30 +1143,141 @@
       const promptText = this.buildPrompt(student, exams);
 
       const hasKey = this.checkApiKey(provider, aiConfig);
+      let rawResult = null;
+
       if (!hasKey) {
         await new Promise((r) => setTimeout(r, 600));
-        return this.generateSimulatedAnalysis(student, exams);
+        rawResult = this.generateSimulatedAnalysis(student, exams);
+      } else {
+        try {
+          if (provider === "openai") {
+            rawResult = await this.callOpenAI(promptText, aiConfig, abortSignal);
+          } else if (provider === "gemini") {
+            rawResult = await this.callGemini(promptText, aiConfig, abortSignal);
+          } else if (provider === "claude") {
+            rawResult = await this.callClaude(promptText, aiConfig, abortSignal);
+          } else {
+            rawResult = this.generateSimulatedAnalysis(student, exams);
+          }
+        } catch (err) {
+          if (err.name === "AbortError") {
+            throw err;
+          }
+          console.warn(`[AI Servisi] ${provider} çağrısı uyarısı:`, err.message);
+          rawResult = this.generateSimulatedAnalysis(student, exams);
+          rawResult._fallbackUsed = true;
+        }
       }
 
-      try {
-        if (provider === "openai") {
-          return await this.callOpenAI(promptText, aiConfig, abortSignal);
-        } else if (provider === "gemini") {
-          return await this.callGemini(promptText, aiConfig, abortSignal);
-        } else if (provider === "claude") {
-          return await this.callClaude(promptText, aiConfig, abortSignal);
-        } else {
-          return this.generateSimulatedAnalysis(student, exams);
+      // KURAL: Yanlış / eksik yapılan TÜM kazanımların rapora eksiksiz aktarılmasını sağla
+      return this.ensureAllWrongOutcomesIncluded(rawResult, student, exams);
+    }
+
+    static ensureAllWrongOutcomesIncluded(aiResult, student, exams) {
+      if (!aiResult) aiResult = {};
+      const aiDeficiencies = Array.isArray(aiResult.eksikKonular) ? [...aiResult.eksikKonular] : [];
+
+      // 1. Öğrencinin seçili tüm sınavlarındaki TÜM ders sonuçlarını ve kazanımlarını tara
+      const allDeficienciesFromExams = [];
+      const seenKeySet = new Set();
+
+      (exams || []).forEach((exam) => {
+        (exam.dersSonuclari || []).forEach((d) => {
+          const dersAdi = (d.ders || "Genel").trim();
+          let foundAnyDeficiencyInDers = false;
+
+          (d.konular || []).forEach((k) => {
+            const yuzde = k.basariYuzdesi !== undefined ? Number(k.basariYuzdesi) : (k.soruSayisi > 0 ? Number(((k.dogru / k.soruSayisi) * 100).toFixed(0)) : 0);
+            const isDeficient = k.durum === "yanlis" || k.durum === "bos" || k.yanlis > 0 || k.bos > 0 || yuzde < 100 || (k.soruSayisi > 0 && k.dogru < k.soruSayisi);
+
+            if (isDeficient && k.kazanimAdi && k.kazanimAdi.trim().length > 2) {
+              foundAnyDeficiencyInDers = true;
+              const cleanTopic = k.kazanimAdi.trim();
+              const uniqueKey = `${dersAdi.toLowerCase()}___${cleanTopic.toLowerCase()}`;
+
+              if (!seenKeySet.has(uniqueKey)) {
+                seenKeySet.add(uniqueKey);
+
+                // AI'nın bu konu için ürettiği özel öneri veya seviye varsa al
+                const matchedAiItem = aiDeficiencies.find(
+                  (aiItem) => (aiItem.ders && aiItem.ders.toLowerCase().includes(dersAdi.toLowerCase())) &&
+                              (aiItem.konu && (aiItem.konu.toLowerCase().includes(cleanTopic.toLowerCase()) || cleanTopic.toLowerCase().includes(aiItem.konu.toLowerCase())))
+                );
+
+                const seviye = matchedAiItem?.seviye || (yuzde < 50 ? "kritik" : (yuzde < 85 ? "orta" : "hafif"));
+                const oneri = matchedAiItem?.oneri || `${dersAdi} dersinde bu kazanım için kavram tekrarı ve ${yuzde === 0 ? "35" : "25"} yeni nesil soru çözümü`;
+
+                allDeficienciesFromExams.push({
+                  ders: dersAdi,
+                  konu: cleanTopic,
+                  seviye,
+                  yuzde,
+                  dogru: k.dogru || 0,
+                  yanlis: k.yanlis || (yuzde < 100 ? 1 : 0),
+                  bos: k.bos || 0,
+                  oneri
+                });
+              }
+            }
+          });
+
+          // Eğer derste yanlış (>0) veya boş (>0) var ama kazanım listesi boşsa / eksik tespit edilmediyse:
+          if ((d.yanlis > 0 || d.bos > 0) && !foundAnyDeficiencyInDers) {
+            const matchedCurriculumKey = Object.keys(CURRICULUM_DATA).find((ck) => ck.toLowerCase().includes(dersAdi.toLowerCase()) || dersAdi.toLowerCase().includes(ck.toLowerCase()));
+            const curriculumList = matchedCurriculumKey ? CURRICULUM_DATA[matchedCurriculumKey] : (CURRICULUM_DATA[dersAdi] || []);
+            const missingCount = Math.max(1, d.yanlis || 1);
+
+            for (let i = 0; i < missingCount; i++) {
+              const currItem = curriculumList[i % (curriculumList.length || 1)] || { konu: `${dersAdi} Eksik Kazanımı`, kazanim: `${dersAdi} dersi ilgili soru kazanımı analiz edilir.` };
+              const cleanTopic = `${currItem.konu}: ${currItem.kazanim}`;
+              const uniqueKey = `${dersAdi.toLowerCase()}___${cleanTopic.toLowerCase()}`;
+
+              if (!seenKeySet.has(uniqueKey)) {
+                seenKeySet.add(uniqueKey);
+                allDeficienciesFromExams.push({
+                  ders: dersAdi,
+                  konu: cleanTopic,
+                  seviye: "kritik",
+                  yuzde: 0,
+                  dogru: 0,
+                  yanlis: 1,
+                  bos: 0,
+                  oneri: `${dersAdi} eksik kavram tekrarı ve 35 yeni nesil soru çözümü`
+                });
+              }
+            }
+          }
+        });
+      });
+
+      // 2. AI'nın fazladan ürettiği ama henüz eklenmemiş olan ek konular varsa onları da ekle
+      aiDeficiencies.forEach((aiItem) => {
+        if (aiItem && aiItem.konu) {
+          const alreadyExists = allDeficienciesFromExams.some(
+            (exItem) => (exItem.ders.toLowerCase() === (aiItem.ders || "").toLowerCase()) &&
+                        (exItem.konu.toLowerCase().includes(aiItem.konu.toLowerCase()) || aiItem.konu.toLowerCase().includes(exItem.konu.toLowerCase()))
+          );
+          if (!alreadyExists) {
+            allDeficienciesFromExams.push({
+              ders: aiItem.ders || "Genel",
+              konu: aiItem.konu,
+              seviye: aiItem.seviye || "orta",
+              oneri: aiItem.oneri || "Kavram pekiştirme ve soru çözümü"
+            });
+          }
         }
-      } catch (err) {
-        if (err.name === "AbortError") {
-          throw err;
-        }
-        console.warn(`[AI Servisi] ${provider} çağrısı uyarısı:`, err.message);
-        const fallback = this.generateSimulatedAnalysis(student, exams);
-        fallback._fallbackUsed = true;
-        return fallback;
+      });
+
+      // Eğer hala hiç eksik yoksa genel tavsiye
+      if (allDeficienciesFromExams.length === 0) {
+        allDeficienciesFromExams.push(
+          { ders: "Türkçe", konu: "Yeni Nesil Paragraf ve Muhakeme", seviye: "hafif", oneri: "Günlük 25 paragraf ve deneme çözümü" },
+          { ders: "Matematik", konu: "Yeni Nesil Beceri Temelli Sorular", seviye: "hafif", oneri: "Günde 30 ileri düzey soru" }
+        );
       }
+
+      aiResult.eksikKonular = allDeficienciesFromExams;
+      return aiResult;
     }
 
     static checkApiKey(provider, config) {
@@ -1180,9 +1297,11 @@
             details += `\n* Ders: ${d.ders} | Doğru: ${d.dogru}, Yanlış: ${d.yanlis}, Boş: ${d.bos}, Net: ${d.net}`;
             if (d.konular && d.konular.length > 0) {
               const eksikler = d.konular
-                .filter((k) => k.durum === "yanlis" || k.durum === "bos" || (k.basariYuzdesi !== undefined && k.basariYuzdesi < 100))
-                .map((k) => `${k.kazanimAdi} (%${k.basariYuzdesi !== undefined ? k.basariYuzdesi : 0} Başarı)`);
-              if (eksikler.length > 0) details += `\n  - Yüzdelik Başarısı %100 Altında Olan Eksik Kazanımlar: ${eksikler.join("; ")}`;
+                .filter((k) => k.durum === "yanlis" || k.durum === "bos" || k.yanlis > 0 || k.bos > 0 || (k.basariYuzdesi !== undefined && k.basariYuzdesi < 100) || (k.soruSayisi > 0 && k.dogru < k.soruSayisi))
+                .map((k) => `${k.kazanimAdi} (Soru: ${k.soruSayisi || 1}, Doğru: ${k.dogru || 0}, Yanlış: ${k.yanlis || 0}, Başarı: %${k.basariYuzdesi !== undefined ? k.basariYuzdesi : 0})`);
+              if (eksikler.length > 0) {
+                details += `\n  - Bu Dersteki TÜM Eksik/Yanlış Kazanımlar (${eksikler.length} adet):\n    • ` + eksikler.join("\n    • ");
+              }
             }
           });
           return details;
@@ -1455,35 +1574,64 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const isMulti = exams.length > 1;
 
       const eksikler = [];
-      (latestExam.dersSonuclari || []).forEach((d) => {
-        let hasWrongGain = false;
-        (d.konular || []).forEach((k) => {
-          if (k.durum === "yanlis" || k.durum === "bos" || (k.basariYuzdesi !== undefined && k.basariYuzdesi < 100)) {
-            hasWrongGain = true;
-            const yuzde = k.basariYuzdesi !== undefined ? k.basariYuzdesi : 0;
-            eksikler.push({
-              ders: d.ders,
-              konu: k.kazanimAdi,
-              seviye: yuzde < 50 ? "kritik" : (yuzde < 85 ? "orta" : "hafif"),
-              yuzde: yuzde,
-              oneri: `Kavram tekrarı ve ${yuzde === 0 ? "40" : "30"} yeni nesil soru çözümü (${d.ders})`
-            });
+      const seenKeySet = new Set();
+
+      (exams || []).forEach((exam) => {
+        (exam.dersSonuclari || []).forEach((d) => {
+          let hasWrongGain = false;
+          (d.konular || []).forEach((k) => {
+            const yuzde = k.basariYuzdesi !== undefined ? Number(k.basariYuzdesi) : (k.soruSayisi > 0 ? Number(((k.dogru / k.soruSayisi) * 100).toFixed(0)) : 0);
+            const isDeficient = k.durum === "yanlis" || k.durum === "bos" || k.yanlis > 0 || k.bos > 0 || yuzde < 100 || (k.soruSayisi > 0 && k.dogru < k.soruSayisi);
+
+            if (isDeficient && k.kazanimAdi && k.kazanimAdi.trim().length > 2) {
+              hasWrongGain = true;
+              const cleanTopic = k.kazanimAdi.trim();
+              const uniqueKey = `${(d.ders || "").toLowerCase()}___${cleanTopic.toLowerCase()}`;
+
+              if (!seenKeySet.has(uniqueKey)) {
+                seenKeySet.add(uniqueKey);
+                eksikler.push({
+                  ders: d.ders,
+                  konu: cleanTopic,
+                  seviye: yuzde < 50 ? "kritik" : (yuzde < 85 ? "orta" : "hafif"),
+                  yuzde: yuzde,
+                  dogru: k.dogru || 0,
+                  yanlis: k.yanlis || (yuzde < 100 ? 1 : 0),
+                  bos: k.bos || 0,
+                  oneri: `${d.ders} dersinde kavram tekrarı ve ${yuzde === 0 ? "35" : "25"} yeni nesil soru çözümü`
+                });
+              }
+            }
+          });
+
+          // Eğer derste yanlış (>0) veya boş (>0) varsa ama konular boşsa veya eşleşmediyse:
+          const neededMissingCount = (d.yanlis || 0) + (d.bos > 0 ? 1 : 0);
+          if (neededMissingCount > 0 && !hasWrongGain) {
+            const matchedCurriculumKey = Object.keys(CURRICULUM_DATA).find((k) => k.toLowerCase().includes(d.ders.toLowerCase()) || d.ders.toLowerCase().includes(k.toLowerCase()));
+            const curriculumList = matchedCurriculumKey ? CURRICULUM_DATA[matchedCurriculumKey] : (CURRICULUM_DATA[d.ders] || []);
+            const missingCount = Math.max(1, d.yanlis || 1);
+
+            for (let i = 0; i < missingCount; i++) {
+              const currItem = curriculumList[i % (curriculumList.length || 1)] || { konu: `${d.ders} Eksik Kazanımı`, kazanim: `${d.ders} ilgili soru kazanımı analiz edilir.` };
+              const cleanTopic = `${currItem.konu}: ${currItem.kazanim}`;
+              const uniqueKey = `${(d.ders || "").toLowerCase()}___${cleanTopic.toLowerCase()}`;
+
+              if (!seenKeySet.has(uniqueKey)) {
+                seenKeySet.add(uniqueKey);
+                eksikler.push({
+                  ders: d.ders,
+                  konu: cleanTopic,
+                  seviye: "kritik",
+                  yuzde: 0,
+                  dogru: 0,
+                  yanlis: 1,
+                  bos: 0,
+                  oneri: `${d.ders} eksik kavram tekrarı ve 35 yeni nesil soru çözümü`
+                });
+              }
+            }
           }
         });
-
-        // Eğer derste yanlış (>0) veya boş (>0) varsa ama konular boşsa veya eşleşmediyse:
-        if ((d.yanlis > 0 || d.bos > 0) && !hasWrongGain) {
-          const matchedCurriculumKey = Object.keys(CURRICULUM_DATA).find((k) => k.toLowerCase().includes(d.ders.toLowerCase()) || d.ders.toLowerCase().includes(k.toLowerCase()));
-          const curriculumList = matchedCurriculumKey ? CURRICULUM_DATA[matchedCurriculumKey] : (CURRICULUM_DATA[d.ders] || []);
-          const fallbackKonu = curriculumList[0]?.konu || `${d.ders} Temel Kazanımı`;
-          eksikler.push({
-            ders: d.ders,
-            konu: `${fallbackKonu} (Kavram ve Soru Analizi)`,
-            seviye: "kritik",
-            yuzde: 0,
-            oneri: `${d.ders} eksik kavram tekrarı ve 35 yeni nesil soru çözümü`
-          });
-        }
       });
 
       if (eksikler.length === 0) {

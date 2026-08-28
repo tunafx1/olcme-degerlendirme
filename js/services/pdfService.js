@@ -163,6 +163,31 @@ export class PDFService {
         });
       });
 
+      let bestSubj = null;
+      let worstSubj = null;
+      let maxDelta = -Infinity;
+      let minDelta = Infinity;
+
+      const subjectRowsData = allSubjects.map((subj) => {
+        const nets = exams.map((ex) => {
+          const match = (ex.dersSonuclari || []).find((d) => d.ders === subj);
+          return match ? Number(match.net) || 0 : null;
+        });
+        const fNet = nets[0];
+        const lNet = nets[nets.length - 1];
+        const delta = (fNet !== null && lNet !== null) ? (lNet - fNet) : 0;
+        
+        if (delta > maxDelta) {
+          maxDelta = delta;
+          bestSubj = { subj, delta };
+        }
+        if (delta < minDelta) {
+          minDelta = delta;
+          worstSubj = { subj, delta };
+        }
+        return { subj, nets, delta };
+      });
+
       crossSubjectMatrixHtml = `
         <div class="report-section mb-2">
           <div class="report-section-header" style="border-color: ${themeColor}; margin-bottom: 4px; padding-left: 6px;">
@@ -181,14 +206,7 @@ export class PDFService {
               </tr>
             </thead>
             <tbody>
-              ${allSubjects.map((subj) => {
-                const nets = exams.map((ex) => {
-                  const match = (ex.dersSonuclari || []).find((d) => d.ders === subj);
-                  return match ? Number(match.net) || 0 : null;
-                });
-                const fNet = nets[0];
-                const lNet = nets[nets.length - 1];
-                const delta = (fNet !== null && lNet !== null) ? (lNet - fNet) : 0;
+              ${subjectRowsData.map(({ subj, nets, delta }) => {
                 let trendBadge = "";
                 if (delta > 0.2) {
                   trendBadge = `<span class="badge badge-success font-bold" style="font-size: 8.5px; padding: 1px 4px;">📈 +${delta.toFixed(2)} (Yükseliş)</span>`;
@@ -213,6 +231,10 @@ export class PDFService {
               }).join("")}
             </tbody>
           </table>
+          <div style="display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 4px 8px; margin-top: 2px; font-size: 9.5px;">
+            ${bestSubj && bestSubj.delta > 0 ? `<span>⭐ <strong>En Çok Gelişme Gösterilen Ders:</strong> ${bestSubj.subj} (<span style="color:#059669; font-weight:700;">+${bestSubj.delta.toFixed(2)} Net</span>)</span>` : `<span>⭐ <strong>Gelişim Durumu:</strong> Dersler Dengeli Takip Ediliyor</span>`}
+            ${worstSubj && worstSubj.delta < 0 ? `<span>⚠️ <strong>En Çok Telafi Gerektiren Ders:</strong> ${worstSubj.subj} (<span style="color:#dc2626; font-weight:700;">${worstSubj.delta.toFixed(2)} Net</span>)</span>` : `<span>🎯 <strong>İstikrar:</strong> Ders Netleri Korunuyor</span>`}
+          </div>
         </div>
       `;
     }
@@ -274,58 +296,72 @@ export class PDFService {
       const nonRecurringTopics = report.eksikKonular.filter((ek) => !recurringTopics.includes(ek));
 
       let recurringBlockHtml = "";
-      if (isMulti && recurringTopics.length > 0) {
-        recurringBlockHtml = `
-          <div class="report-section mb-2" style="background: #fff8f8; border: 1.5px solid #fca5a5; border-radius: 6px; padding: 7px 10px; margin-bottom: 8px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1.5px solid #fecaca; padding-bottom: 4px; margin-bottom: 6px;">
-              <div style="display: flex; align-items: center; gap: 6px;">
-                <span style="font-size: 15px;">🚨</span>
+      if (isMulti) {
+        if (recurringTopics.length > 0) {
+          recurringBlockHtml = `
+            <div class="report-section mb-2" style="background: #fff8f8; border: 1.5px solid #fca5a5; border-radius: 6px; padding: 7px 10px; margin-bottom: 8px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1.5px solid #fecaca; padding-bottom: 4px; margin-bottom: 6px;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span style="font-size: 15px;">🚨</span>
+                  <div>
+                    <h3 style="color: #991b1b; font-size: 11.5px; margin: 0; font-weight: 800;">
+                      2+ Sınavda Tekrarlayan (Kronik) Yanlış Kazanımlar (${recurringTopics.length} Kazanım)
+                    </h3>
+                    <span style="font-size: 9px; color: #b91c1c;">
+                      Bu kazanımlar öğrencinin birden fazla sınavda üst üste yanlış yaptığı acil telafi gerektiren kalıcı eksiklerdir!
+                    </span>
+                  </div>
+                </div>
+                <span class="badge badge-danger font-bold" style="font-size: 8.5px; padding: 2px 6px; background: #ef4444; color: #fff;">
+                  Öncelikli Eylem Alanı
+                </span>
+              </div>
+
+              <div class="report-recurring-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
+                ${recurringTopics.map((ek) => {
+                  const examList = ek.recurringExams && ek.recurringExams.length > 0
+                    ? ek.recurringExams
+                    : exams.map((e) => e.sinavAdi);
+                  const cleanKonu = (ek.konu || "").replace(/🚨/g, "").replace(/Tekrar Eden/g, "").trim();
+
+                  return `
+                    <div class="report-deficiency-item recurring-card" style="padding: 5px 8px; background: #ffffff; border: 1px solid #fca5a5; border-radius: 4px; box-shadow: 0 1px 2px rgba(220, 38, 38, 0.05);">
+                      <div class="report-deficiency-header mb-1" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span class="report-deficiency-subject" style="font-size: 10.5px; font-weight: 800; color: #991b1b;">${ek.ders}</span>
+                        <div class="d-flex gap-1 items-center">
+                          <span class="badge badge-danger font-bold" style="font-size: 7.5px; padding: 1px 4px; background: #ef4444; color: #fff;">
+                            🚨 Tekrarlayan Yanlış (${ek.recurringCount || examList.length} Sınav)
+                          </span>
+                          <span class="badge badge-danger font-bold" style="font-size: 7.5px; padding: 1px 4px;">Kritik</span>
+                        </div>
+                      </div>
+                      <div class="report-deficiency-title" style="font-size: 10px; font-weight: 700; color: #1e293b; line-height: 1.25;">
+                        ${cleanKonu}
+                      </div>
+                      <div class="recurring-exams-bar" style="margin-top: 3px; padding: 2px 5px; background: #fef2f2; border: 1px dashed #f87171; border-radius: 3px; font-size: 9px; color: #991b1b; display: flex; align-items: center; gap: 3px; flex-wrap: wrap;">
+                        <strong>📌 Hata Yapılan Sınavlar:</strong>
+                        ${examList.map((name) => `<span class="badge badge-danger font-bold" style="font-size: 8px; padding: 0 4px; background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5;">${escapeHtml(name)}</span>`).join("")}
+                      </div>
+                      ${ek.oneri ? `<div class="report-deficiency-tip" style="font-size: 9px; color: #475569; background: #f8fafc; padding: 2px 5px; border-radius: 2px; border: 1px solid #e2e8f0; margin-top: 3px;">💡 <strong>Eylem Planı:</strong> ${escapeHtml(ek.oneri.replace(/🚨.*?:/g, "").trim())}</div>` : ""}
+                    </div>
+                  `;
+                }).join("")}
+              </div>
+            </div>
+          `;
+        } else {
+          recurringBlockHtml = `
+            <div class="report-section mb-2" style="background: #f0fdf4; border: 1.5px solid #86efac; border-radius: 6px; padding: 7px 10px; margin-bottom: 8px;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 16px;">✅</span>
                 <div>
-                  <h3 style="color: #991b1b; font-size: 11.5px; margin: 0; font-weight: 800;">
-                    2+ Sınavda Tekrarlayan (Kronik) Yanlış Kazanımlar (${recurringTopics.length} Kazanım)
-                  </h3>
-                  <span style="font-size: 9px; color: #b91c1c;">
-                    Bu kazanımlar öğrencinin birden fazla sınavda üst üste yanlış yaptığı acil telafi gerektiren kalıcı eksiklerdir!
-                  </span>
+                  <strong style="color: #166534; font-size: 11px;">Mükemmel: Tekrarlayan (Kronik) Eksik Bulunmamaktadır!</strong>
+                  <div style="font-size: 9.5px; color: #15803d;">Seçilen ${exams.length} sınavın karşılaştırmalı analizinde öğrencinin peş peşe hata yaptığı kronik bir kazanım saptanmamıştır. Aşağıda tekil sınav eksiklerinin telafi programı listelenmiştir.</div>
                 </div>
               </div>
-              <span class="badge badge-danger font-bold" style="font-size: 8.5px; padding: 2px 6px; background: #ef4444; color: #fff;">
-                Öncelikli Eylem Alanı
-              </span>
             </div>
-
-            <div class="report-recurring-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
-              ${recurringTopics.map((ek) => {
-                const examList = ek.recurringExams && ek.recurringExams.length > 0
-                  ? ek.recurringExams
-                  : exams.map((e) => e.sinavAdi);
-                const cleanKonu = (ek.konu || "").replace(/🚨/g, "").replace(/Tekrar Eden/g, "").trim();
-
-                return `
-                  <div class="report-deficiency-item recurring-card" style="padding: 5px 8px; background: #ffffff; border: 1px solid #fca5a5; border-radius: 4px; box-shadow: 0 1px 2px rgba(220, 38, 38, 0.05);">
-                    <div class="report-deficiency-header mb-1" style="display: flex; justify-content: space-between; align-items: center;">
-                      <span class="report-deficiency-subject" style="font-size: 10.5px; font-weight: 800; color: #991b1b;">${ek.ders}</span>
-                      <div class="d-flex gap-1 items-center">
-                        <span class="badge badge-danger font-bold" style="font-size: 7.5px; padding: 1px 4px; background: #ef4444; color: #fff;">
-                          🚨 Tekrarlayan Yanlış (${ek.recurringCount || examList.length} Sınav)
-                        </span>
-                        <span class="badge badge-danger font-bold" style="font-size: 7.5px; padding: 1px 4px;">Kritik</span>
-                      </div>
-                    </div>
-                    <div class="report-deficiency-title" style="font-size: 10px; font-weight: 700; color: #1e293b; line-height: 1.25;">
-                      ${cleanKonu}
-                    </div>
-                    <div class="recurring-exams-bar" style="margin-top: 3px; padding: 2px 5px; background: #fef2f2; border: 1px dashed #f87171; border-radius: 3px; font-size: 9px; color: #991b1b; display: flex; align-items: center; gap: 3px; flex-wrap: wrap;">
-                      <strong>📌 Hata Yapılan Sınavlar:</strong>
-                      ${examList.map((name) => `<span class="badge badge-danger font-bold" style="font-size: 8px; padding: 0 4px; background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5;">${escapeHtml(name)}</span>`).join("")}
-                    </div>
-                    ${ek.oneri ? `<div class="report-deficiency-tip" style="font-size: 9px; color: #475569; background: #f8fafc; padding: 2px 5px; border-radius: 2px; border: 1px solid #e2e8f0; margin-top: 3px;">💡 <strong>Eylem Planı:</strong> ${escapeHtml(ek.oneri.replace(/🚨.*?:/g, "").trim())}</div>` : ""}
-                  </div>
-                `;
-              }).join("")}
-            </div>
-          </div>
-        `;
+          `;
+        }
       }
 
       let nonRecurringBlockHtml = "";

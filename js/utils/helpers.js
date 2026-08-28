@@ -31,6 +31,77 @@ export function calculateNet(dogru = 0, yanlis = 0, examType = "lgs") {
   return Math.max(0, Number(net.toFixed(2)));
 }
 
+/**
+ * Kazanım metinlerini küçük/büyük harf, Türkçe karakter, noktalama ve MEB kod farkı gözetmeksizin normalize eder
+ */
+export function normalizeKazanimText(text) {
+  if (!text) return "";
+  let s = String(text).trim();
+  // Başlangıçtaki soru numarası, şık veya MEB kodlarını temizle (örn: "1 -", "T.8.1.2.", "M.5.2.1.")
+  s = s.replace(/^(?:(?:\d+|[A-ZÇĞİÖŞÜ])\s*[\.\-\)\:]\s*)+/i, "");
+  s = s.replace(/^[A-ZÇĞİÖŞÜ]\.\d+(?:\.\d+)*[\.\-\:\s]*/i, "");
+  // Türkçe karakter standardizasyonu (İ/i, I/ı)
+  s = s.replace(/İ/g, "i").replace(/I/g, "ı").toLowerCase();
+  // Karşılaştırma için Türkçe karakter katlama
+  s = s.replace(/ğ/g, "g").replace(/ü/g, "u").replace(/ş/g, "s").replace(/ö/g, "o").replace(/ç/g, "c").replace(/ı/g, "i");
+  // Noktalama ve özel karakterleri boşlukla değiştir
+  s = s.replace(/[\.\,\;\:\!\?\'\"\(\)\[\]\{\}\-\–\—\/\\\_]/g, " ");
+  // Fazla boşlukları teke indir
+  s = s.replace(/\s+/g, " ").trim();
+  return s;
+}
+
+/**
+ * İki kazanımın aynı veya eşdeğer kazanım olup olmadığını akıllı benzerlik (Jaccard + Kök Eşleşmesi) ile doğrular
+ */
+export function areKazanimlarEquivalent(textA, textB) {
+  const normA = normalizeKazanimText(textA);
+  const normB = normalizeKazanimText(textB);
+  if (!normA || !normB) return false;
+  if (normA === normB) return true;
+
+  // Uzun metinlerde alt dize kapsama kontrolü
+  if (normA.length >= 15 && normB.length >= 15) {
+    if (normA.includes(normB) || normB.includes(normA)) return true;
+  }
+
+  // Anlamlı kelime kümesi benzerliği (Stopwords filtrelenmiş Jaccard)
+  const stopWords = new Set(["ve", "ile", "veya", "de", "da", "icin", "bu", "bir", "cok", "en", "gibi", "gore", "ait", "ilgili", "yonelik", "eder", "yapar", "cozer", "belirler", "kavrar", "anlar", "kullanir", "yapabilme", "cozebilme"]);
+  const tokensA = new Set(normA.split(" ").filter(w => w.length >= 3 && !stopWords.has(w)));
+  const tokensB = new Set(normB.split(" ").filter(w => w.length >= 3 && !stopWords.has(w)));
+
+  if (tokensA.size === 0 || tokensB.size === 0) {
+    return normA === normB;
+  }
+
+  let intersection = 0;
+  tokensA.forEach(t => {
+    for (const tb of tokensB) {
+      if (t === tb || (t.length >= 5 && tb.length >= 5 && (t.startsWith(tb.substring(0, Math.min(tb.length, 5))) || tb.startsWith(t.substring(0, Math.min(t.length, 5)))))) {
+        intersection++;
+        break;
+      }
+    }
+  });
+
+  const union = tokensA.size + tokensB.size - intersection;
+  const jaccard = union > 0 ? intersection / union : 0;
+  const dice = (tokensA.size + tokensB.size) > 0 ? (2 * intersection) / (tokensA.size + tokensB.size) : 0;
+
+  return jaccard >= 0.50 || dice >= 0.60;
+}
+
+/**
+ * Sınavın ders netlerinin doğrulanmış gerçek toplamını hesaplar
+ */
+export function getVerifiedExamTotalNet(exam) {
+  if (exam && exam.dersSonuclari && Array.isArray(exam.dersSonuclari) && exam.dersSonuclari.length > 0) {
+    const sum = exam.dersSonuclari.reduce((acc, d) => acc + (Number(d.net) || 0), 0);
+    return Number(sum.toFixed(2));
+  }
+  return Number(Number(exam?.toplamNet || 0).toFixed(2));
+}
+
 export function showToast(message, type = "info", duration = 3500) {
   let container = document.getElementById("toast-container");
   if (!container) {

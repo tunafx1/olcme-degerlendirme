@@ -1,8 +1,4 @@
-/**
- * Yapay Zekâ Analiz Servisi
- * Google Gemini API, OpenAI API ve Anthropic Claude API Entegrasyonu
- * + Akıllı Çevrimdışı / Simülasyon Motoru (Fallback)
- */
+import { normalizeKazanimText, areKazanimlarEquivalent, getVerifiedExamTotalNet } from "../utils/helpers.js";
 
 export class AIService {
   /**
@@ -62,43 +58,58 @@ export class AIService {
    * Pedagojik AI Prompt Şablonunu Oluşturur
    */
   static buildPrompt(student, exams) {
-    const isMultiExam = exams.length > 1;
+    // Sınavları her zaman kronolojik sıraya diz
+    const sortedExams = [...exams].sort((a, b) => {
+      const tA = new Date(a.tarih || 0).getTime() || 0;
+      const tB = new Date(b.tarih || 0).getTime() || 0;
+      return tA - tB;
+    });
 
-    // Çoklu sınav varsa ortak / tekrar eden yanlış kazanımları tespit et
-    const topicStats = {};
-    exams.forEach((exam, examIdx) => {
+    const isMultiExam = sortedExams.length > 1;
+
+    // Çoklu sınav varsa ortak / tekrar eden yanlış kazanımları akıllı benzerlikle (fuzzy matching) tespit et
+    const topicGroups = [];
+    sortedExams.forEach((exam, examIdx) => {
       (exam.dersSonuclari || []).forEach((d) => {
+        const dersName = (d.ders || "Genel").trim();
         (d.konular || []).forEach((k) => {
           const yuzde = k.basariYuzdesi !== undefined ? Number(k.basariYuzdesi) : (k.soruSayisi > 0 ? Number(((k.dogru / k.soruSayisi) * 100).toFixed(0)) : 0);
           const isDeficient = k.durum === "yanlis" || k.durum === "bos" || k.yanlis > 0 || k.bos > 0 || yuzde < 100 || (k.soruSayisi > 0 && k.dogru < k.soruSayisi);
           if (isDeficient && k.kazanimAdi && k.kazanimAdi.trim().length > 2) {
-            const key = `${(d.ders || "").trim().toLowerCase()}___${k.kazanimAdi.trim().toLowerCase()}`;
-            if (!topicStats[key]) {
-              topicStats[key] = {
-                ders: (d.ders || "").trim(),
-                kazanimAdi: k.kazanimAdi.trim(),
+            const rawTopic = k.kazanimAdi.trim();
+            let matchGroup = topicGroups.find(g => 
+              g.ders.toLowerCase() === dersName.toLowerCase() && areKazanimlarEquivalent(g.kazanimAdi, rawTopic)
+            );
+
+            if (!matchGroup) {
+              matchGroup = {
+                ders: dersName,
+                kazanimAdi: rawTopic,
                 examIndices: new Set(),
                 examNames: [],
                 totalWrong: 0,
                 totalBos: 0
               };
+              topicGroups.push(matchGroup);
             }
-            topicStats[key].examIndices.add(examIdx);
-            if (!topicStats[key].examNames.includes(exam.sinavAdi)) {
-              topicStats[key].examNames.push(exam.sinavAdi);
+
+            matchGroup.examIndices.add(examIdx);
+            if (!matchGroup.examNames.includes(exam.sinavAdi)) {
+              matchGroup.examNames.push(exam.sinavAdi);
             }
-            topicStats[key].totalWrong += Number(k.yanlis) || (k.durum === "yanlis" ? 1 : 0);
-            topicStats[key].totalBos += Number(k.bos) || (k.durum === "bos" ? 1 : 0);
+            matchGroup.totalWrong += Number(k.yanlis) || (k.durum === "yanlis" ? 1 : 0);
+            matchGroup.totalBos += Number(k.bos) || (k.durum === "bos" ? 1 : 0);
           }
         });
       });
     });
 
-    const recurringTopics = Object.values(topicStats).filter((t) => t.examIndices.size >= 2);
+    const recurringTopics = topicGroups.filter((t) => t.examIndices.size >= 2);
 
-    let examSummary = exams
+    let examSummary = sortedExams
       .map((exam, index) => {
-        let details = `\n--- SINAV ${index + 1}: ${exam.sinavAdi} (Tarih: ${exam.tarih}, Toplam Net: ${exam.toplamNet || "-"}, LGS Puanı: ${exam.puan || "-"}) ---`;
+        const verifiedNet = getVerifiedExamTotalNet(exam);
+        let details = `\n--- SINAV ${index + 1}: ${exam.sinavAdi} (Tarih: ${exam.tarih}, Doğrulanmış Toplam Net: ${verifiedNet}, LGS Puanı: ${exam.puan || "-"}) ---`;
         (exam.dersSonuclari || []).forEach((d) => {
           details += `\n* Ders: ${d.ders} | Doğru: ${d.dogru}, Yanlış: ${d.yanlis}, Boş: ${d.bos}, Net: ${d.net}`;
           if (d.konular && d.konular.length > 0) {
@@ -421,74 +432,96 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
    * Gerçek öğrenci sınav verilerini analiz edip tutarlı pedagojik çıktı üretir
    */
   static generateSimulatedAnalysis(student, exams) {
-    const isMulti = exams.length > 1;
-    const latestExam = exams[exams.length - 1];
-    const firstExam = exams[0];
+    // Sınavları her zaman kronolojik sıraya diz
+    const sortedExams = [...exams].sort((a, b) => {
+      const tA = new Date(a.tarih || 0).getTime() || 0;
+      const tB = new Date(b.tarih || 0).getTime() || 0;
+      return tA - tB;
+    });
 
-    // 1. ADIM: Sınavlardaki tüm eksik kazanımları ve sınav bazında tekrar sıklığını tara
-    const topicStats = {};
+    const isMulti = sortedExams.length > 1;
+    const firstExam = sortedExams[0] || {};
+    const latestExam = sortedExams[sortedExams.length - 1] || {};
 
-    (exams || []).forEach((exam, examIdx) => {
+    const verifiedFirstNet = getVerifiedExamTotalNet(firstExam);
+    const verifiedLatestNet = getVerifiedExamTotalNet(latestExam);
+    const netFark = Number((verifiedLatestNet - verifiedFirstNet).toFixed(2));
+
+    // 1. ADIM: Sınavlardaki tüm eksik kazanımları ve sınav bazında tekrar sıklığını akıllı eşleştirme ile tara
+    const topicGroups = [];
+
+    sortedExams.forEach((exam, examIdx) => {
       (exam.dersSonuclari || []).forEach((d) => {
+        const dersName = (d.ders || "Genel").trim();
         let hasWrongGain = false;
+
         (d.konular || []).forEach((k) => {
           const yuzde = k.basariYuzdesi !== undefined ? Number(k.basariYuzdesi) : (k.soruSayisi > 0 ? Number(((k.dogru / k.soruSayisi) * 100).toFixed(0)) : 0);
           const isDeficient = k.durum === "yanlis" || k.durum === "bos" || k.yanlis > 0 || k.bos > 0 || yuzde < 100 || (k.soruSayisi > 0 && k.dogru < k.soruSayisi);
 
           if (isDeficient && k.kazanimAdi && k.kazanimAdi.trim().length > 2) {
             hasWrongGain = true;
-            const cleanTopic = k.kazanimAdi.trim();
-            const uniqueKey = `${(d.ders || "").toLowerCase()}___${cleanTopic.toLowerCase()}`;
+            const rawTopic = k.kazanimAdi.trim();
+            let matchGroup = topicGroups.find(g => 
+              g.ders.toLowerCase() === dersName.toLowerCase() && areKazanimlarEquivalent(g.kazanimAdi, rawTopic)
+            );
 
-            if (!topicStats[uniqueKey]) {
-              topicStats[uniqueKey] = {
-                ders: d.ders,
-                konu: cleanTopic,
+            if (!matchGroup) {
+              matchGroup = {
+                ders: dersName,
+                kazanimAdi: rawTopic,
                 examIndices: new Set(),
                 examNames: [],
                 totalWrong: 0,
                 totalBos: 0,
                 yuzde: yuzde
               };
+              topicGroups.push(matchGroup);
             }
-            topicStats[uniqueKey].examIndices.add(examIdx);
-            if (!topicStats[uniqueKey].examNames.includes(exam.sinavAdi)) {
-              topicStats[uniqueKey].examNames.push(exam.sinavAdi);
+
+            matchGroup.examIndices.add(examIdx);
+            if (!matchGroup.examNames.includes(exam.sinavAdi)) {
+              matchGroup.examNames.push(exam.sinavAdi);
             }
-            topicStats[uniqueKey].totalWrong += Number(k.yanlis) || 1;
-            topicStats[uniqueKey].totalBos += Number(k.bos) || 0;
+            matchGroup.totalWrong += Number(k.yanlis) || 1;
+            matchGroup.totalBos += Number(k.bos) || 0;
+            matchGroup.yuzde = Math.min(matchGroup.yuzde, yuzde);
           }
         });
 
         // Eğer derste yanlış veya boş var ama kazanım listesi boşsa
         const neededMissingCount = (d.yanlis || 0) + (d.bos > 0 ? 1 : 0);
         if (neededMissingCount > 0 && !hasWrongGain) {
-          const cleanTopic = `${d.ders}: Temel Soru & Kavram Analizi`;
-          const uniqueKey = `${(d.ders || "").toLowerCase()}___${cleanTopic.toLowerCase()}`;
+          const cleanTopic = `${dersName}: Temel Soru & Kavram Analizi`;
+          let matchGroup = topicGroups.find(g => 
+            g.ders.toLowerCase() === dersName.toLowerCase() && areKazanimlarEquivalent(g.kazanimAdi, cleanTopic)
+          );
 
-          if (!topicStats[uniqueKey]) {
-            topicStats[uniqueKey] = {
-              ders: d.ders,
-              konu: cleanTopic,
+          if (!matchGroup) {
+            matchGroup = {
+              ders: dersName,
+              kazanimAdi: cleanTopic,
               examIndices: new Set(),
               examNames: [],
               totalWrong: 0,
               totalBos: 0,
               yuzde: 0
             };
+            topicGroups.push(matchGroup);
           }
-          topicStats[uniqueKey].examIndices.add(examIdx);
-          if (!topicStats[uniqueKey].examNames.includes(exam.sinavAdi)) {
-            topicStats[uniqueKey].examNames.push(exam.sinavAdi);
+
+          matchGroup.examIndices.add(examIdx);
+          if (!matchGroup.examNames.includes(exam.sinavAdi)) {
+            matchGroup.examNames.push(exam.sinavAdi);
           }
-          topicStats[uniqueKey].totalWrong += Number(d.yanlis) || 1;
+          matchGroup.totalWrong += Number(d.yanlis) || 1;
         }
       });
     });
 
     // 2. ADIM: 2 veya daha fazla sınavda tekrar eden ortak yanlışları (kronik eksikleri) ayıkla
-    const recurringTopics = Object.values(topicStats).filter((t) => t.examIndices.size >= 2);
-    const singleTopics = Object.values(topicStats).filter((t) => t.examIndices.size === 1);
+    const recurringTopics = topicGroups.filter((t) => t.examIndices.size >= 2);
+    const singleTopics = topicGroups.filter((t) => t.examIndices.size === 1);
 
     const eksikler = [];
 
@@ -496,7 +529,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     recurringTopics.forEach((t) => {
       eksikler.push({
         ders: t.ders,
-        konu: t.konu,
+        konu: t.kazanimAdi,
         isRecurring: true,
         recurringCount: t.examIndices.size,
         recurringExams: t.examNames,
@@ -513,7 +546,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     singleTopics.forEach((t) => {
       eksikler.push({
         ders: t.ders,
-        konu: t.konu,
+        konu: t.kazanimAdi,
         isRecurring: false,
         recurringCount: 1,
         recurringExams: t.examNames,
@@ -533,41 +566,88 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       );
     }
 
-    // 3. ADIM: Genel Yorum ve Gelişim Analizi Metinlerini Üret
+    // Ders bazlı değişim analizi (en çok düşen ve yükselen ders)
+    const allSubjects = [];
+    sortedExams.forEach((ex) => {
+      (ex.dersSonuclari || []).forEach((d) => {
+        if (d.ders && !allSubjects.includes(d.ders)) allSubjects.push(d.ders);
+      });
+    });
+
+    let bestSubj = null;
+    let worstSubj = null;
+    let maxDelta = -Infinity;
+    let minDelta = Infinity;
+
+    allSubjects.forEach((subj) => {
+      const match1 = (firstExam.dersSonuclari || []).find((d) => d.ders === subj);
+      const match2 = (latestExam.dersSonuclari || []).find((d) => d.ders === subj);
+      if (match1 && match2) {
+        const delta = Number((Number(match2.net) - Number(match1.net)).toFixed(2));
+        if (delta > maxDelta) {
+          maxDelta = delta;
+          bestSubj = { subj, delta };
+        }
+        if (delta < minDelta) {
+          minDelta = delta;
+          worstSubj = { subj, delta };
+        }
+      }
+    });
+
+    // 3. ADIM: Gerçek Veriyle 100% Tutarlı Genel Yorum ve Gelişim Analizi Metinlerini Üret
     let genelYorum = `Sevgili ${student.adSoyad}, `;
     if (isMulti) {
-      const netFark = (Number(latestExam.toplamNet) || 0) - (Number(firstExam.toplamNet) || 0);
-      genelYorum += `seçilen **${exams.length} sınavın** (${firstExam.sinavAdi} ➔ ${latestExam.sinavAdi}) sonuçları karşılaştırmalı olarak analiz edilmiştir. `;
-      if (netFark >= 0) {
-        genelYorum += `Süreç içinde netlerinde **+${netFark.toFixed(2)} netlik artış** kaydedildiği görülmektedir. `;
+      genelYorum += `seçilen **${sortedExams.length} sınavın** (${firstExam.sinavAdi} [${verifiedFirstNet} Net] ➔ ${latestExam.sinavAdi} [${verifiedLatestNet} Net]) sonuçları karşılaştırmalı olarak analiz edilmiştir. `;
+      if (netFark > 0.5) {
+        genelYorum += `Süreç içinde toplam netlerinde **+${netFark.toFixed(2)} netlik artış** kaydedilmiştir. `;
+        if (bestSubj && bestSubj.delta > 0) {
+          genelYorum += `En belirgin gelişim **${bestSubj.subj}** dersinde (+${bestSubj.delta.toFixed(2)} Net) gerçekleşmiştir. `;
+        }
+      } else if (netFark < -0.5) {
+        genelYorum += `İki sınav arasında toplamda **${netFark.toFixed(2)} netlik bir düşüş** gözlenmiştir. `;
+        if (worstSubj && worstSubj.delta < 0) {
+          genelYorum += `En çok net kaybı **${worstSubj.subj}** dersinde (${worstSubj.delta.toFixed(2)} Net) yaşanmıştır. `;
+        }
       } else {
-        genelYorum += `Sınavlar arasında **${netFark.toFixed(2)} netlik dalgalanma** gözlenmiştir. `;
+        genelYorum += `İki sınav arasında genel netler benzer seviyede dengeli seyretmiştir (${netFark >= 0 ? '+' : ''}${netFark.toFixed(2)} Net). `;
       }
+
       if (recurringTopics.length > 0) {
-        genelYorum += `Yapılan analizde **${recurringTopics.length} adet kazanımda her iki sınavda da hata tekrarı yapıldığı (kronik eksik)** belirlenmiştir. Bu ortak eksikler aşağıdaki 7 günlük çalışma tablosunda 1. Etütlere mutlak öncelikle atanmıştır.`;
+        genelYorum += `Yapılan çapraz analizde **${recurringTopics.length} adet kazanımda sınavlar boyunca hata tekrarı yapıldığı (kronik eksik)** belirlenmiştir. Bu ortak eksikler aşağıdaki 7 günlük çalışma tablosunda 1. Etütlere mutlak öncelikle atanmıştır.`;
       } else {
-        genelYorum += `Sınavlar arasında hata tekrarı yapılan ortak kazanım bulunmamakta olup, yeni eksiklerin telafisine odaklanılmıştır.`;
+        genelYorum += `Sınavlar arasında peş peşe hata yapılan ortak kronik bir kazanım bulunmamakta olup, tekil eksiklerin telafisine odaklanılmıştır.`;
       }
     } else {
       genelYorum += `"${latestExam.sinavAdi}" sınav sonucun değerlendirilmiştir. `;
-      if (latestExam.toplamNet && latestExam.toplamNet >= 80) {
-        genelYorum += `Elde ettiğin **${latestExam.toplamNet} netlik yüksek başarı** ve puan performansın harikadır. `;
+      if (verifiedLatestNet >= 80) {
+        genelYorum += `Elde ettiğin **${verifiedLatestNet} netlik yüksek başarı** ve puan performansın harikadır. `;
       } else {
-        genelYorum += `Elde ettiğin **${latestExam.toplamNet || 70} netlik performans** düzenli çalışma ile daha da yükselecektir. `;
+        genelYorum += `Elde ettiğin **${verifiedLatestNet} netlik performans** düzenli çalışma ile daha da yükselecektir. `;
       }
       genelYorum += `Karnende yüzdelik başarısı %100'ün altında kalan ${eksikler.length} adet eksik kazanım tespit edilmiştir. Aşağıdaki 7 günlük çalışma çizelgesi doğrudan bu eksik kazanımlarını telafi etmek üzere hazırlanmıştır.`;
     }
 
     let gelisimAnalizi = "";
     if (isMulti) {
-      const netFark = (Number(latestExam.toplamNet) || 0) - (Number(firstExam.toplamNet) || 0);
-      const puan1 = Number(String(firstExam.puan || "").replace(",", ".")) || 0;
-      const puan2 = Number(String(latestExam.puan || "").replace(",", ".")) || 0;
-      const puanDiff = puan1 > 0 && puan2 > 0 ? (puan2 - puan1).toFixed(2) : null;
+      const p1Raw = String(firstExam.puan || "").replace(",", ".").trim();
+      const p2Raw = String(latestExam.puan || "").replace(",", ".").trim();
+      const p1 = parseFloat(p1Raw);
+      const p2 = parseFloat(p2Raw);
+      const hasScores = !isNaN(p1) && !isNaN(p2) && p1 > 0 && p2 > 0;
+      const pDiff = hasScores ? Number((p2 - p1).toFixed(2)) : null;
 
-      gelisimAnalizi = `📊 **Genel Gelişim Seyri:** ${firstExam.sinavAdi} (${firstExam.toplamNet || "-"} Net) ➔ ${latestExam.sinavAdi} (${latestExam.toplamNet || "-"} Net) [Toplam Net Değişimi: ${netFark >= 0 ? "+" : ""}${netFark.toFixed(2)} Net${puanDiff !== null ? ` | Puan Değişimi: ${Number(puanDiff) >= 0 ? '+' : ''}${puanDiff} Puan` : ''}].\n`;
+      gelisimAnalizi = `📊 **Genel Gelişim Seyri:** ${firstExam.sinavAdi} (${verifiedFirstNet} Net) ➔ ${latestExam.sinavAdi} (${verifiedLatestNet} Net) [Toplam Net Değişimi: ${netFark >= 0 ? "+" : ""}${netFark.toFixed(2)} Net${pDiff !== null ? ` | Puan Değişimi: ${pDiff >= 0 ? '+' : ''}${pDiff} Puan` : ''}].\n`;
+      
+      if (worstSubj && worstSubj.delta < 0) {
+        gelisimAnalizi += `\n⚠️ **Öncelikli Telafi Gerektiren Alan:** En büyük düşüş ${worstSubj.subj} (${worstSubj.delta.toFixed(2)} Net) dersinde gerçekleşmiştir.\n`;
+      }
+      if (bestSubj && bestSubj.delta > 0) {
+        gelisimAnalizi += `\n⭐ **Öne Çıkan Başarı:** En yüksek gelişim ${bestSubj.subj} (+${bestSubj.delta.toFixed(2)} Net) dersinde sağlanmıştır.\n`;
+      }
+
       if (recurringTopics.length > 0) {
-        gelisimAnalizi += `\n🚨 **Tekrarlayan (Kronik) Kazanım Hataları:** Seçilen ${exams.length} sınavın çapraz analizinde **${recurringTopics.length} adet kazanımda** hata tekrarı saptanmıştır. Özellikle ${recurringTopics.map((t) => `"${t.ders}: ${t.konu}" (${t.examNames.join(" & ")})`).slice(0, 3).join(", ")} konuları öğrencinin kalıcı telafi gerektiren risk alanlarıdır.\n`;
+        gelisimAnalizi += `\n🚨 **Tekrarlayan (Kronik) Kazanım Hataları:** Seçilen ${sortedExams.length} sınavın çapraz analizinde **${recurringTopics.length} adet kazanımda** hata tekrarı saptanmıştır. Özellikle ${recurringTopics.map((t) => `"${t.ders}: ${t.kazanimAdi}" (${t.examNames.join(" & ")})`).slice(0, 3).join(", ")} konuları öğrencinin kalıcı telafi gerektiren risk alanlarıdır.\n`;
         gelisimAnalizi += `\n💡 **Rehberlik & İyileştirme Stratejisi:** Tekrarlayan yanlış yapılan bu kazanımlar, soru çözüm föyleri ve yanlış soru defteri (Hata Defteri) yöntemiyle acilen pekiştirilmelidir. Öğrencinin haftalık çalışma çizelgesindeki 1. Etütler bu eksiklere göre kurgulanmıştır.`;
       } else {
         gelisimAnalizi += `\n✓ **Başarı Seyri:** Sınavlar arasında peş peşe hata yapılan ortak kronik bir eksik kazanım saptanmamıştır. Yeni nesil soru pratikleriyle mevcut başarı korunmalıdır.`;
@@ -641,7 +721,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     ];
 
     const kocTavsiyesi = recurringTopics.length > 0
-      ? `Özellikle ${recurringTopics.length} adet sınavlar arası tekrar eden ortak eksik kazanım (${recurringTopics[0].ders} - ${recurringTopics[0].konu} vb.) acil telafi edilmeli, hata defterindeki sorular pazar günü mutlaka sıfır hata ile yeniden çözülmelidir.`
+      ? `Özellikle ${recurringTopics.length} adet sınavlar arası tekrar eden ortak eksik kazanım (${recurringTopics[0].ders} - ${recurringTopics[0].kazanimAdi} vb.) acil telafi edilmeli, hata defterindeki sorular pazar günü mutlaka sıfır hata ile yeniden çözülmelidir.`
       : "Hafta boyu denemelerde ve testlerde yanlış yapılan her soru 'Hata Defteri'ne yapıştırılmalı ve pazar günü mutlaka yeniden çözülmelidir.";
 
     return {
@@ -659,5 +739,4 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       _isSimulated: true
     };
   }
-}
 }

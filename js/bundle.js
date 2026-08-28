@@ -3198,6 +3198,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     const app = window.app || {};
     const groups = app.getCalculatedExamGroups ? app.getCalculatedExamGroups() : [];
     const sortOrder = app.examSortOrder || "yeniden-eskiye";
+    const gradeFilter = app.examGradeFilter || "all";
     const totalDistinctExams = groups.length;
     const totalStudentExams = state.exams.length;
 
@@ -3209,6 +3210,9 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             <p class="view-subtitle">Aynı isimli deneme sınavları tek uygulama altında toplanır; katılımcı öğrencileri ve yapay zekâ analiz raporlarını görüntüleyin.</p>
           </div>
           <div class="view-actions">
+            <button class="btn btn-outline font-bold text-primary border-primary" onclick="window.app.openMergeExamsModal()" title="Farklı yazılmış veya mükerrer aynı sınav uygulamalarını tek isim altında birleştir">
+              <span>🔗 Sınavları Birleştir</span>
+            </button>
             <button class="btn btn-outline text-danger border-danger font-bold" onclick="window.app.openBulkDeleteExamsModal()" title="Sınav verilerini toplu sil">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
               <span>🗑️ Toplu Sınav Sil</span>
@@ -3220,23 +3224,36 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           </div>
         </div>
 
-        <!-- ÜST ARAMA VE SIRALAMA ÇUBUĞU -->
+        <!-- ÜST ARAMA, SINIF FİLTRESİ VE SIRALAMA ÇUBUĞU -->
         <div class="filter-bar card" style="display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 14px 18px; margin-bottom: 20px;">
-          <div class="filter-search" style="flex: 1; min-width: 260px;">
+          <div class="filter-search" style="flex: 1; min-width: 240px;">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input type="text" id="exam-search-input" class="search-input" placeholder="🔍 Sınav adı veya katılan öğrenci ara..." value="${escapeHtml(app.examSearchQuery || "")}" oninput="window.app.onExamSearchInput(this.value)" />
           </div>
 
           <div class="d-flex items-center gap-2" style="flex-wrap: wrap;">
-            <label style="font-size: 12.5px; font-weight: 700; color: #475569;">Sıralama:</label>
-            <select id="exam-sort-select" class="form-control" style="width: auto; min-width: 220px; font-size: 13px;" onchange="window.app.onExamSortChange(this.value)">
-              <option value="yeniden-eskiye" ${sortOrder === "yeniden-eskiye" ? "selected" : ""}>📅 Tarih: Yeniden Eskiye</option>
-              <option value="eskiden-yeniye" ${sortOrder === "eskiden-yeniye" ? "selected" : ""}>📅 Tarih: Eskiden Yeniye</option>
-              <option value="net-yuksek" ${sortOrder === "net-yuksek" ? "selected" : ""}>📈 Ortalama Net: En Yüksekten Düşüğe</option>
-              <option value="net-dusuk" ${sortOrder === "net-dusuk" ? "selected" : ""}>📉 Ortalama Net: En Düşükten Yükseğe</option>
-              <option value="ogrenci-cok" ${sortOrder === "ogrenci-cok" ? "selected" : ""}>👥 Katılımcı: En Çoktan Aza</option>
-              <option value="isim-az" ${sortOrder === "isim-az" ? "selected" : ""}>🔤 Sınav Adı: A - Z</option>
-            </select>
+            <div class="d-flex items-center gap-1">
+              <label style="font-size: 12.5px; font-weight: 700; color: #475569;">Sınıf:</label>
+              <select id="exam-grade-filter-select" class="form-control font-bold" style="width: auto; min-width: 135px; font-size: 13px;" onchange="window.app.onExamGradeFilterChange(this.value)">
+                <option value="all" ${gradeFilter === 'all' ? 'selected' : ''}>Tüm Sınıflar</option>
+                <option value="5" ${gradeFilter === '5' ? 'selected' : ''}>5. Sınıf</option>
+                <option value="6" ${gradeFilter === '6' ? 'selected' : ''}>6. Sınıf</option>
+                <option value="7" ${gradeFilter === '7' ? 'selected' : ''}>7. Sınıf</option>
+                <option value="8" ${gradeFilter === '8' ? 'selected' : ''}>8. Sınıf (LGS)</option>
+              </select>
+            </div>
+
+            <div class="d-flex items-center gap-1">
+              <label style="font-size: 12.5px; font-weight: 700; color: #475569;">Sıralama:</label>
+              <select id="exam-sort-select" class="form-control" style="width: auto; min-width: 205px; font-size: 13px;" onchange="window.app.onExamSortChange(this.value)">
+                <option value="yeniden-eskiye" ${sortOrder === "yeniden-eskiye" ? "selected" : ""}>📅 Tarih: Yeniden Eskiye</option>
+                <option value="eskiden-yeniye" ${sortOrder === "eskiden-yeniye" ? "selected" : ""}>📅 Tarih: Eskiden Yeniye</option>
+                <option value="net-yuksek" ${sortOrder === "net-yuksek" ? "selected" : ""}>📈 Net: En Yüksekten Düşüğe</option>
+                <option value="net-dusuk" ${sortOrder === "net-dusuk" ? "selected" : ""}>📉 Net: En Düşükten Yükseğe</option>
+                <option value="ogrenci-cok" ${sortOrder === "ogrenci-cok" ? "selected" : ""}>👥 Katılımcı: En Çoktan Aza</option>
+                <option value="isim-az" ${sortOrder === "isim-az" ? "selected" : ""}>🔤 Sınav Adı: A - Z</option>
+              </select>
+            </div>
 
             <button class="btn btn-sm btn-outline font-bold" onclick="window.app.toggleAllExamGroups()" title="Tüm sınav listelerini genişlet / daralt">
               <span>🔄 Tümünü Aç / Kapat</span>
@@ -3247,7 +3264,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         <!-- ÖZET BİLGİ ŞERİDİ -->
         <div class="d-flex justify-between items-center mb-3" style="padding: 0 4px;">
           <span style="font-size: 13px; color: var(--text-muted);">
-            Toplam <strong>${totalDistinctExams}</strong> farklı sınav uygulaması (Toplam <strong>${totalStudentExams}</strong> öğrenci sınav sonucu)
+            ${gradeFilter !== "all" ? `<strong class="text-primary">${gradeFilter}. Sınıf</strong> filtrelendi • ` : ""}Toplam <strong>${totalDistinctExams}</strong> farklı sınav uygulaması (Toplam <strong>${totalStudentExams}</strong> öğrenci sınav sonucu)
           </span>
         </div>
 
@@ -3300,6 +3317,9 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             </div>
 
             <div class="exam-group-actions" onclick="event.stopPropagation()">
+              <button class="btn btn-sm btn-ghost font-bold text-primary" onclick="window.app.openMergeExamsModal('${safeExamName}')" title="Bu sınavı başka bir sınav uygulaması ile birleştir">
+                🔗 Birleştir
+              </button>
               <button class="btn btn-sm btn-outline font-bold" onclick="window.app.exportBulkExamReportsByName('${safeExamName}')" title="Bu sınavın tüm öğrencileri için AI analizli toplu rapor PDF'i indir">
                 📥 Toplu PDF
               </button>
@@ -3367,7 +3387,6 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
                 </tbody>
               </table>
             </div>
-          </div>
         </div>
       `;
     }).join("");
@@ -4087,6 +4106,9 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const hasKey = AIService.checkApiKey(provider, aiConfig);
       const activeEngineLabel = provider === "openai" ? `OpenAI (${aiConfig.openaiModel || 'gpt-4o-mini'})` : (provider === "gemini" ? `Google Gemini (${aiConfig.geminiModel || 'gemini-1.5-flash'})` : `Claude (${aiConfig.claudeModel || '3.5-sonnet'})`);
 
+      this.uploadExamTargetMode = this.uploadExamTargetMode || "new";
+      this.uploadTargetGrade = this.uploadTargetGrade || "all";
+
       const modalHtml = `
         <div class="modal-backdrop" id="pdf-upload-modal" onclick="if(event.target === this && !window.app.isBatchProcessing && !window.app.isPdfParsing) window.app.closeModal('pdf-upload-modal')">
           <div class="modal-dialog modal-xl animate-scale-up" style="max-height: 92vh; display: flex; flex-direction: column;">
@@ -4144,6 +4166,48 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
                     </select>
                     <input type="password" id="pdf-quick-api-key" class="form-control" placeholder="API Anahtarınızı (sk-... veya AQ...) buraya yapıştırın" style="flex: 1; min-width: 200px; font-size: 12px;" />
                     <button type="button" class="btn btn-sm btn-primary" onclick="window.app.saveQuickApiKey()">Kaydet</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- SINAV UYGULAMA HEDEFİ SEÇİMİ (YENİ SINAV VS MEVCUT SINAV) -->
+              <div class="card p-3 mb-3" style="background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: var(--radius-md);">
+                <div class="d-flex justify-between items-center flex-wrap gap-2 mb-2">
+                  <label class="form-label font-bold mb-0" style="font-size: 13.5px; color: #0f172a;">🎯 Sınav Uygulama Hedefi:</label>
+                  <span class="badge badge-secondary" style="font-size: 11px;">Mükerrer veya farklı isim oluşmasını engeller</span>
+                </div>
+                <div class="d-flex gap-2 flex-wrap mb-2">
+                  <button type="button" id="btn-target-mode-new" class="btn btn-sm ${this.uploadExamTargetMode !== 'existing' ? 'btn-primary shadow-sm' : 'btn-outline'} font-bold" onclick="window.app.setUploadExamTargetMode('new')">
+                    ✨ Yeni Sınav Olarak Ekle (AI Otomatik İsimlendirsin)
+                  </button>
+                  <button type="button" id="btn-target-mode-existing" class="btn btn-sm ${this.uploadExamTargetMode === 'existing' ? 'btn-primary shadow-sm' : 'btn-outline'} font-bold" onclick="window.app.setUploadExamTargetMode('existing')">
+                    📂 Mevcut Sınav Uygulamasına Dahil Et
+                  </button>
+                </div>
+
+                <!-- Mevcut Sınav Seçim Kutusu -->
+                <div id="existing-exam-selection-box" style="display: ${this.uploadExamTargetMode === 'existing' ? 'block' : 'none'}; background: #f8fafc; padding: 12px 16px; border-radius: 6px; border: 1px solid #e2e8f0; margin-top: 8px;">
+                  <div class="grid-2-col" style="gap: 12px;">
+                    <div class="form-group mb-0">
+                      <label class="form-label font-bold" style="font-size: 12px; color: #334155;">1. Sınıf Seviyesi Seçiniz:</label>
+                      <select id="upload-target-grade-select" class="form-control font-bold" style="font-size: 13px;" onchange="window.app.onUploadTargetGradeChange(this.value)">
+                        <option value="all" ${this.uploadTargetGrade === 'all' ? 'selected' : ''}>Tüm Kademeler</option>
+                        <option value="5" ${this.uploadTargetGrade === '5' ? 'selected' : ''}>5. Sınıf</option>
+                        <option value="6" ${this.uploadTargetGrade === '6' ? 'selected' : ''}>6. Sınıf</option>
+                        <option value="7" ${this.uploadTargetGrade === '7' ? 'selected' : ''}>7. Sınıf</option>
+                        <option value="8" ${this.uploadTargetGrade === '8' ? 'selected' : ''}>8. Sınıf (LGS)</option>
+                      </select>
+                    </div>
+                    <div class="form-group mb-0">
+                      <label class="form-label font-bold" style="font-size: 12px; color: #334155;">2. Dahil Edilecek Sınavı Seçiniz:</label>
+                      <select id="upload-target-exam-select" class="form-control font-bold text-primary" style="font-size: 13px;">
+                        ${this.renderTargetExamOptions(this.uploadTargetGrade || 'all')}
+                      </select>
+                    </div>
+                  </div>
+                  <div class="text-muted mt-2 d-flex items-center gap-1" style="font-size: 11.5px;">
+                    <span>ℹ️</span>
+                    <span>Yüklenecek PDF içerisindeki tüm öğrenciler otomatik olarak seçilen bu sınav uygulaması içine dahil edilir.</span>
                   </div>
                 </div>
               </div>
@@ -4289,9 +4353,17 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         }, {
           useAi,
           aiConfig,
-          concurrency: 8,
           abortSignal: this.pdfParsingAbortController.signal
         });
+
+        if (this.uploadExamTargetMode === "existing") {
+          const targetExamName = document.getElementById("upload-target-exam-select")?.value;
+          if (targetExamName) {
+            students.forEach((st) => {
+              if (st.sinav) st.sinav.sinavAdi = targetExamName;
+            });
+          }
+        }
 
         this.parsedStudentsList = students;
         this.isPdfParsing = false;
@@ -4500,13 +4572,18 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       if (!item) return;
       const { ogrenci, sinav } = item;
 
+      let targetExamName = null;
+      if (this.uploadExamTargetMode === "existing") {
+        targetExamName = document.getElementById("upload-target-exam-select")?.value;
+      }
+
       let student = store.getState().students.find((s) => s.adSoyad.toLowerCase().trim() === ogrenci.adSoyad.toLowerCase().trim() || (s.numara && s.numara === ogrenci.numara));
       if (!student) {
         student = { id: generateId("ogr"), adSoyad: ogrenci.adSoyad, sinif: ogrenci.sinif || "8", sube: ogrenci.sube || "8/A", numara: ogrenci.numara || "100", olusturmaTarihi: sinav.tarih || new Date().toISOString().split("T")[0] };
         store.addStudent(student);
       }
 
-      const exam = { id: generateId("snv"), ogrenciId: student.id, kurumId: store.getState().institution.id, sinavAdi: sinav.sinavAdi || "8. Sınıf Deneme Sınavı", tarih: sinav.tarih || new Date().toISOString().split("T")[0], tur: "kazanimli", toplamSoru: sinav.toplamSoru || 90, toplamNet: sinav.toplamNet, puan: sinav.puan, dersSonuclari: sinav.dersSonuclari };
+      const exam = { id: generateId("snv"), ogrenciId: student.id, kurumId: store.getState().institution.id, sinavAdi: targetExamName || sinav.sinavAdi || "8. Sınıf Deneme Sınavı", tarih: sinav.tarih || new Date().toISOString().split("T")[0], tur: "kazanimli", toplamSoru: sinav.toplamSoru || 90, toplamNet: sinav.toplamNet, puan: sinav.puan, dersSonuclari: sinav.dersSonuclari };
       store.addExam(exam);
 
       this.closeModal("pdf-upload-modal");
@@ -4522,6 +4599,11 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const studentsList = this.parsedStudentsList;
       if (!studentsList || studentsList.length === 0) return;
 
+      let targetExamName = null;
+      if (this.uploadExamTargetMode === "existing") {
+        targetExamName = document.getElementById("upload-target-exam-select")?.value;
+      }
+
       const newStudents = [];
       const newExams = [];
 
@@ -4531,7 +4613,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           student = { id: generateId("ogr"), adSoyad: item.ogrenci.adSoyad, sinif: item.ogrenci.sinif || "8", sube: item.ogrenci.sube || "8/A", numara: item.ogrenci.numara || "100", olusturmaTarihi: item.sinav.tarih || new Date().toISOString().split("T")[0] };
           newStudents.push(student);
         }
-        newExams.push({ id: generateId("snv"), ogrenciId: student.id, kurumId: store.getState().institution.id, sinavAdi: item.sinav.sinavAdi, tarih: item.sinav.tarih, tur: "kazanimli", toplamSoru: item.sinav.toplamSoru || 90, toplamNet: item.sinav.toplamNet, puan: item.sinav.puan, dersSonuclari: item.sinav.dersSonuclari });
+        newExams.push({ id: generateId("snv"), ogrenciId: student.id, kurumId: store.getState().institution.id, sinavAdi: targetExamName || item.sinav.sinavAdi, tarih: item.sinav.tarih, tur: "kazanimli", toplamSoru: item.sinav.toplamSoru || 90, toplamNet: item.sinav.toplamNet, puan: item.sinav.puan, dersSonuclari: item.sinav.dersSonuclari });
       });
 
       store.addBatchStudents(newStudents);
@@ -4545,6 +4627,11 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     async runBatchAiAnalysisAndGenerateReports() {
       const studentsList = this.parsedStudentsList;
       if (!studentsList || studentsList.length === 0) return;
+
+      let targetExamName = null;
+      if (this.uploadExamTargetMode === "existing") {
+        targetExamName = document.getElementById("upload-target-exam-select")?.value;
+      }
 
       this.isBatchProcessing = true;
       this.isBatchCancelled = false;
@@ -4593,7 +4680,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           store.addStudent(student);
         }
 
-        const exam = { id: generateId("snv"), ogrenciId: student.id, kurumId: state.institution.id, sinavAdi: item.sinav.sinavAdi, tarih: item.sinav.tarih, tur: "kazanimli", toplamSoru: item.sinav.toplamSoru || 90, toplamNet: item.sinav.toplamNet, puan: item.sinav.puan, dersSonuclari: item.sinav.dersSonuclari };
+        const exam = { id: generateId("snv"), ogrenciId: student.id, kurumId: state.institution.id, sinavAdi: targetExamName || item.sinav.sinavAdi, tarih: item.sinav.tarih, tur: "kazanimli", toplamSoru: item.sinav.toplamSoru || 90, toplamNet: item.sinav.toplamNet, puan: item.sinav.puan, dersSonuclari: item.sinav.dersSonuclari };
         store.addExam(exam);
 
         try {
@@ -5157,10 +5244,170 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       }
     }
 
+    onExamGradeFilterChange(val) {
+      this.examGradeFilter = val || "all";
+      this.refreshExamsContainer();
+    }
+
+    setUploadExamTargetMode(mode) {
+      this.uploadExamTargetMode = mode;
+      const box = document.getElementById("existing-exam-selection-box");
+      const newBtn = document.getElementById("btn-target-mode-new");
+      const existingBtn = document.getElementById("btn-target-mode-existing");
+
+      if (box) box.style.display = mode === "existing" ? "block" : "none";
+      if (newBtn && existingBtn) {
+        if (mode === "existing") {
+          newBtn.className = "btn btn-sm btn-outline font-bold";
+          existingBtn.className = "btn btn-sm btn-primary shadow-sm font-bold";
+        } else {
+          newBtn.className = "btn btn-sm btn-primary shadow-sm font-bold";
+          existingBtn.className = "btn btn-sm btn-outline font-bold";
+        }
+      }
+    }
+
+    onUploadTargetGradeChange(grade) {
+      this.uploadTargetGrade = grade;
+      const select = document.getElementById("upload-target-exam-select");
+      if (select) {
+        select.innerHTML = this.renderTargetExamOptions(grade);
+      }
+    }
+
+    renderTargetExamOptions(grade = "all") {
+      const state = store.getState();
+      let allExams = this.getCalculatedExamGroups ? this.getCalculatedExamGroups() : [];
+      if (grade !== "all") {
+        allExams = allExams.filter((g) => {
+          const hasGradeInName = g.sinavAdi.includes(`${grade}.`) || g.sinavAdi.includes(`${grade} `) || g.sinavAdi.includes(`${grade}Sınıf`) || (grade === "8" && g.sinavAdi.toLowerCase().includes("lgs"));
+          const hasStudentWithGrade = g.exams.some((ex) => {
+            const st = state.students.find((s) => s.id === ex.ogrenciId);
+            const sGrade = st ? String(st.sinif) : String(ex.sinif || "");
+            return sGrade.startsWith(grade);
+          });
+          return hasGradeInName || hasStudentWithGrade;
+        });
+      }
+
+      if (allExams.length === 0) {
+        return `<option value="">(Seçili kademede kayıtlı sınav yok - Yeni Sınav seçiniz)</option>`;
+      }
+
+      return allExams.map((g) => `
+        <option value="${escapeHtml(g.sinavAdi)}">${escapeHtml(g.sinavAdi)} (${g.totalStudents} Öğrenci)</option>
+      `).join("");
+    }
+
+    openMergeExamsModal(defaultSourceExamName = "") {
+      const state = store.getState();
+      const allExamNames = Array.from(new Set(state.exams.map((e) => (e.sinavAdi || "").trim()).filter(Boolean)));
+      if (allExamNames.length < 2) {
+        showToast("Birleştirme yapabilmek için sistemde en az 2 farklı sınav kaydı bulunmalıdır.", "info");
+        return;
+      }
+
+      const modalHtml = `
+        <div class="modal-backdrop" id="merge-exams-modal" onclick="if(event.target === this) window.app.closeModal('merge-exams-modal')">
+          <div class="modal-dialog modal-md animate-scale-up">
+            <div class="modal-header">
+              <div class="d-flex items-center gap-2">
+                <span style="font-size: 20px;">🔗</span>
+                <h3 class="modal-title">Sınav Uygulamalarını Birleştir</h3>
+              </div>
+              <button class="modal-close" onclick="window.app.closeModal('merge-exams-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+              <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+                Farklı yazılmış veya küçük isim farkları bulunan sınavları tek bir sınav uygulaması altında toplayabilirsiniz.
+              </p>
+
+              <div class="form-group mb-3">
+                <label class="form-label font-bold">1. Birleştirilecek (Kaynak) Sınav:</label>
+                <select id="merge-source-exam-select" class="form-control font-bold" onchange="window.app.onMergeSourceChanged(this.value)">
+                  ${allExamNames.map((name) => `<option value="${escapeHtml(name)}" ${name === defaultSourceExamName ? "selected" : ""}>${escapeHtml(name)} (${state.exams.filter(e => (e.sinavAdi||'').trim() === name).length} Öğrenci)</option>`).join("")}
+                </select>
+              </div>
+
+              <div class="form-group mb-3">
+                <label class="form-label font-bold">2. Hedef Sınav (Hangi sınav adı altında toplansın?):</label>
+                <select id="merge-target-exam-select" class="form-control font-bold text-primary">
+                  ${allExamNames.map((name) => `<option value="${escapeHtml(name)}" ${name !== defaultSourceExamName ? "selected" : ""}>${escapeHtml(name)} (${state.exams.filter(e => (e.sinavAdi||'').trim() === name).length} Öğrenci)</option>`).join("")}
+                </select>
+              </div>
+
+              <div class="p-3 card" style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 6px;">
+                <div class="d-flex items-center gap-2">
+                  <span>💡</span>
+                  <span style="font-size: 12.5px; color: #166534;">
+                    Birleştirme işleminden sonra seçilen kaynak sınavdaki tüm öğrenci sonuçları hedef sınav adına aktarılır ve tek bir sınav kartı altında toplanır.
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline" onclick="window.app.closeModal('merge-exams-modal')">İptal</button>
+              <button type="button" class="btn btn-primary font-bold shadow-glow" onclick="window.app.executeMergeExams()">🔗 Sınavları Birleştir</button>
+            </div>
+          </div>
+        </div>
+      `;
+      this.renderModalContainer(modalHtml);
+    }
+
+    onMergeSourceChanged(sourceName) {
+      const select = document.getElementById("merge-target-exam-select");
+      if (!select) return;
+      const state = store.getState();
+      const allExamNames = Array.from(new Set(state.exams.map((e) => (e.sinavAdi || "").trim()).filter(Boolean)));
+      select.innerHTML = allExamNames.map((name) => `
+        <option value="${escapeHtml(name)}" ${name !== sourceName ? "selected" : ""}>${escapeHtml(name)} (${state.exams.filter(e => (e.sinavAdi||'').trim() === name).length} Öğrenci)</option>
+      `).join("");
+    }
+
+    executeMergeExams() {
+      const sourceName = document.getElementById("merge-source-exam-select")?.value;
+      const targetName = document.getElementById("merge-target-exam-select")?.value;
+
+      if (!sourceName || !targetName) {
+        showToast("Lütfen kaynak ve hedef sınavları seçin.", "warning");
+        return;
+      }
+      if (sourceName === targetName) {
+        showToast("Kaynak ve hedef sınav aynı olamaz. Lütfen farklı bir hedef sınav seçin.", "warning");
+        return;
+      }
+
+      const state = store.getState();
+      const affectedExams = state.exams.filter((e) => (e.sinavAdi || "").trim() === sourceName.trim());
+      if (affectedExams.length === 0) {
+        showToast("Kaynak sınava ait öğrenci kaydı bulunamadı.", "warning");
+        return;
+      }
+
+      state.exams = state.exams.map((e) => {
+        if ((e.sinavAdi || "").trim() === sourceName.trim()) {
+          return { ...e, sinavAdi: targetName };
+        }
+        return e;
+      });
+      store.saveToStorage(APP_CONFIG.storageKeys.EXAMS, state.exams);
+      state.exams.forEach((ex) => {
+        if (ex.sinavAdi === targetName) {
+          FirebaseService.saveDocument("sinavlar", ex.id, ex);
+        }
+      });
+
+      store.notify("EXAMS_UPDATED", state.exams);
+      this.closeModal("merge-exams-modal");
+      showToast(`✓ "${sourceName}" sınavındaki ${affectedExams.length} öğrenci başarıyla "${targetName}" ile birleştirildi!`, "success");
+    }
+
     getCalculatedExamGroups() {
       const state = store.getState();
       const searchQuery = (this.examSearchQuery || "").toLowerCase().trim();
       const sortOrder = this.examSortOrder || "yeniden-eskiye";
+      const gradeFilter = this.examGradeFilter || "all";
 
       const groupsMap = new Map();
 
@@ -5209,6 +5456,20 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         }).length;
       });
 
+      // Sınıf Kademesi Filtresi
+      if (gradeFilter !== "all") {
+        groups = groups.filter((g) => {
+          const hasGradeInName = g.sinavAdi.includes(`${gradeFilter}.`) || g.sinavAdi.includes(`${gradeFilter} `) || g.sinavAdi.includes(`${gradeFilter}Sınıf`) || (gradeFilter === "8" && g.sinavAdi.toLowerCase().includes("lgs"));
+          const hasStudentWithGrade = g.exams.some((ex) => {
+            const st = state.students.find((s) => s.id === ex.ogrenciId);
+            const sGrade = st ? String(st.sinif) : String(ex.sinif || "");
+            return sGrade.startsWith(gradeFilter);
+          });
+          return hasGradeInName || hasStudentWithGrade;
+        });
+      }
+
+      // Arama Filtresi
       if (searchQuery) {
         groups = groups.filter((g) => {
           if (g.sinavAdi.toLowerCase().includes(searchQuery)) return true;

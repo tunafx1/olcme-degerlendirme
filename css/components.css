@@ -1176,3 +1176,131 @@
   border-radius: 99px;
   transition: width 0.3s ease;
 }
+
+/* SINAV YÖNETİMİ GRUPLANMIŞ KARTLARI */
+.exam-groups-container {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.exam-group-card {
+  background: #ffffff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+.exam-group-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+}
+
+.exam-group-header {
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  cursor: pointer;
+  background: #ffffff;
+  transition: background 0.18s ease;
+  user-select: none;
+}
+
+.exam-group-header:hover {
+  background: #f8fafc;
+}
+
+.exam-group-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.exam-group-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.exam-group-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.exam-group-meta-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.exam-group-stat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: var(--radius-full);
+  font-size: 11.5px;
+  font-weight: 600;
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid #e2e8f0;
+}
+
+.exam-group-stat-badge.badge-highlight {
+  background: rgba(37, 99, 235, 0.08);
+  color: #2563eb;
+  border-color: rgba(37, 99, 235, 0.2);
+}
+
+.exam-group-stat-badge.badge-success-light {
+  background: #ecfdf5;
+  color: #059669;
+  border-color: #a7f3d0;
+}
+
+.exam-group-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.exam-group-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.exam-group-toggle-icon {
+  transition: transform 0.25s ease;
+}
+
+.exam-group-card.expanded .exam-group-toggle-icon {
+  transform: rotate(180deg);
+}
+
+.exam-group-body {
+  display: none;
+  border-top: 1px solid #e2e8f0;
+  background: #fafafa;
+  padding: 0;
+}
+
+.exam-group-card.expanded .exam-group-body {
+  display: block;
+}
+
+.exam-group-students-table-wrap {
+  overflow-x: auto;
+}

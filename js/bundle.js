@@ -3195,13 +3195,21 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
 
   function renderExamsView() {
     const state = store.getState();
-    const selectedIds = Array.from(state.selectedExamIds);
+    const app = window.app || {};
+    const groups = app.getCalculatedExamGroups ? app.getCalculatedExamGroups() : [];
+    const sortOrder = app.examSortOrder || "yeniden-eskiye";
+    const totalDistinctExams = groups.length;
+    const totalStudentExams = state.exams.length;
+
     return `
       <div class="view-container animate-fade-in">
         <div class="view-header">
-          <div><h1 class="view-title">Sınav Yönetimi</h1><p class="view-subtitle">Sınav sonuç belgelerini PDF olarak yükleyin veya manuel girin.</p></div>
+          <div>
+            <h1 class="view-title">Sınav Yönetimi</h1>
+            <p class="view-subtitle">Aynı isimli deneme sınavları tek uygulama altında toplanır; katılımcı öğrencileri ve yapay zekâ analiz raporlarını görüntüleyin.</p>
+          </div>
           <div class="view-actions">
-            <button class="btn btn-outline text-danger border-danger" onclick="window.app.openBulkDeleteExamsModal()" title="Sınav verilerini toplu sil">
+            <button class="btn btn-outline text-danger border-danger font-bold" onclick="window.app.openBulkDeleteExamsModal()" title="Sınav verilerini toplu sil">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
               <span>🗑️ Toplu Sınav Sil</span>
             </button>
@@ -3212,64 +3220,155 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           </div>
         </div>
 
-        <div class="filter-bar card">
-          <div class="filter-search">
+        <!-- ÜST ARAMA VE SIRALAMA ÇUBUĞU -->
+        <div class="filter-bar card" style="display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 14px 18px; margin-bottom: 20px;">
+          <div class="filter-search" style="flex: 1; min-width: 260px;">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input type="text" id="exam-search-input" class="search-input" placeholder="Sınav veya öğrenci ara..." oninput="window.app.filterExams()" />
+            <input type="text" id="exam-search-input" class="search-input" placeholder="🔍 Sınav adı veya katılan öğrenci ara..." value="${escapeHtml(app.examSearchQuery || "")}" oninput="window.app.onExamSearchInput(this.value)" />
           </div>
-          <div class="filter-select-wrap">
-            <select id="exam-student-filter" class="form-control" onchange="window.app.filterExams()">
-              <option value="all">Tüm Öğrenciler</option>
-              ${(state.students || []).map((s) => `<option value="${s.id}">${escapeHtml(s.adSoyad || 'Öğrenci')} (${escapeHtml(s.sube || '8/A')})</option>`).join("")}
+
+          <div class="d-flex items-center gap-2" style="flex-wrap: wrap;">
+            <label style="font-size: 12.5px; font-weight: 700; color: #475569;">Sıralama:</label>
+            <select id="exam-sort-select" class="form-control" style="width: auto; min-width: 220px; font-size: 13px;" onchange="window.app.onExamSortChange(this.value)">
+              <option value="yeniden-eskiye" ${sortOrder === "yeniden-eskiye" ? "selected" : ""}>📅 Tarih: Yeniden Eskiye</option>
+              <option value="eskiden-yeniye" ${sortOrder === "eskiden-yeniye" ? "selected" : ""}>📅 Tarih: Eskiden Yeniye</option>
+              <option value="net-yuksek" ${sortOrder === "net-yuksek" ? "selected" : ""}>📈 Ortalama Net: En Yüksekten Düşüğe</option>
+              <option value="net-dusuk" ${sortOrder === "net-dusuk" ? "selected" : ""}>📉 Ortalama Net: En Düşükten Yükseğe</option>
+              <option value="ogrenci-cok" ${sortOrder === "ogrenci-cok" ? "selected" : ""}>👥 Katılımcı: En Çoktan Aza</option>
+              <option value="isim-az" ${sortOrder === "isim-az" ? "selected" : ""}>🔤 Sınav Adı: A - Z</option>
             </select>
+
+            <button class="btn btn-sm btn-outline font-bold" onclick="window.app.toggleAllExamGroups()" title="Tüm sınav listelerini genişlet / daralt">
+              <span>🔄 Tümünü Aç / Kapat</span>
+            </button>
           </div>
         </div>
 
-        <div class="card">
-          <div class="card-body p-0">
-            <div class="table-responsive">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th style="width: 40px; text-align: center;"><input type="checkbox" id="select-all-exams" onchange="window.app.toggleSelectAllExams(this.checked)" /></th>
-                    <th>Sınav Adı</th><th>Öğrenci</th><th>Tarih</th><th>Tür</th><th>Toplam Net</th><th style="text-align: right;">İşlemler</th>
-                  </tr>
-                </thead>
-                <tbody id="exams-tbody">${renderExamRows(state.exams, state.students, selectedIds)}</tbody>
-              </table>
-            </div>
-          </div>
+        <!-- ÖZET BİLGİ ŞERİDİ -->
+        <div class="d-flex justify-between items-center mb-3" style="padding: 0 4px;">
+          <span style="font-size: 13px; color: var(--text-muted);">
+            Toplam <strong>${totalDistinctExams}</strong> farklı sınav uygulaması (Toplam <strong>${totalStudentExams}</strong> öğrenci sınav sonucu)
+          </span>
+        </div>
+
+        <!-- GRUPLANMIŞ SINAVLAR LİSTESİ -->
+        <div class="exam-groups-container" id="exam-groups-container">
+          ${renderExamGroupCards(groups, state)}
         </div>
       </div>
     `;
   }
 
-  function renderExamRows(exams, students, selectedIds) {
-    if (!exams || exams.length === 0) {
-      return `<tr><td colspan="7" class="text-center py-5"><div class="empty-state"><h3>Sınav Kaydı Yok</h3><button class="btn btn-primary btn-sm mt-3" onclick="window.app.openUploadPdfModal()">PDF Sınav Belgesi Yükle</button></div></td></tr>`;
-    }
-    return exams.map((exam) => {
-      if (!exam) return "";
-      const student = (students || []).find((s) => s && s.id === exam.ogrenciId);
-      const isSelected = selectedIds.includes(exam.id);
-      const sName = student ? (student.adSoyad || "Öğrenci") : (exam.ogrenciAdSoyad || "Bilinmeyen");
-      const sClass = student ? `${student.sinif || 8}. Sınıf / ${student.sube || '8/A'}` : "";
+  function renderExamGroupCards(groups, state) {
+    if (!groups || groups.length === 0) {
       return `
-        <tr class="exam-row ${isSelected ? "row-selected" : ""}">
-          <td style="text-align: center;"><input type="checkbox" class="exam-checkbox" value="${exam.id}" ${isSelected ? "checked" : ""} onchange="window.app.toggleExamCheckbox('${exam.id}')" /></td>
-          <td><div class="font-bold text-dark cursor-pointer" onclick="window.app.viewExamDetail('${exam.id}')">${escapeHtml(exam.sinavAdi || "Sınav")}</div><div style="font-size: 11px; color: var(--text-muted);">${(exam.dersSonuclari || []).length} Ders • LGS: <strong>${exam.puan || "-"}</strong></div></td>
-          <td><strong>${escapeHtml(sName)}</strong><div style="font-size: 12px; color: var(--text-muted);">${escapeHtml(sClass)}</div></td>
-          <td>${formatDate(exam.tarih)}</td>
-          <td><span class="badge ${exam.tur === "kazanimli" ? "badge-success" : "badge-secondary"}">${exam.tur === "kazanimli" ? "🎯 Kazanımlı" : "📊 Kazanımsız"}</span></td>
-          <td><strong class="text-primary">${exam.toplamNet || "-"} Net</strong></td>
-          <td style="text-align: right;">
-            <div class="btn-group">
-              <button class="btn btn-sm btn-ghost text-primary" onclick="window.app.analyzeSingleExam('${exam.id}')">Analiz</button>
-              <button class="btn btn-sm btn-ghost" onclick="window.app.viewExamDetail('${exam.id}')">İncele</button>
-              <button class="btn btn-sm btn-ghost text-danger" onclick="window.app.deleteExamConfirm('${exam.id}')">Sil</button>
+        <div class="card">
+          <div class="card-body text-center py-5">
+            <div class="empty-state">
+              <h3>🔍 Aradığınız Kriterlere Uygun Sınav Bulunamadı</h3>
+              <p style="color: var(--text-muted); font-size: 13px; margin-top: 6px;">Farklı bir arama yapabilir veya yeni bir PDF sınav karnesi yükleyebilirsiniz.</p>
+              <button class="btn btn-primary btn-sm mt-3" onclick="window.app.openUploadPdfModal()">📄 PDF Sınav Belgesi Yükle</button>
             </div>
-          </td>
-        </tr>
+          </div>
+        </div>
+      `;
+    }
+
+    const app = window.app || {};
+    const expandedKeys = app.expandedExamKeys || new Set();
+
+    return groups.map((group, gIdx) => {
+      const isExpanded = expandedKeys.has(group.key);
+      const safeExamName = escapeHtml(group.sinavAdi);
+      const sortedStudentExams = [...group.exams].sort((a, b) => (Number(b.toplamNet) || 0) - (Number(a.toplamNet) || 0));
+
+      return `
+        <div class="exam-group-card ${isExpanded ? "expanded" : ""}" id="exam-group-card-${gIdx}" data-exam-key="${escapeHtml(group.key)}">
+          <div class="exam-group-header" onclick="window.app.toggleExamGroup('${escapeHtml(group.key)}')">
+            <div class="exam-group-info">
+              <div class="exam-group-title-row">
+                <h3 class="exam-group-title">${safeExamName}</h3>
+                <span class="badge ${group.tur === "kazanimli" ? "badge-success" : "badge-secondary"}" style="font-size: 10.5px;">${group.tur === "kazanimli" ? "🎯 Kazanımlı" : "📊 Kazanımsız"}</span>
+              </div>
+              <div class="exam-group-meta-badges">
+                <span class="exam-group-stat-badge badge-highlight">👥 <strong>${group.totalStudents}</strong> Öğrenci</span>
+                <span class="exam-group-stat-badge">🎯 Ort. Net: <strong>${group.avgNet}</strong></span>
+                <span class="exam-group-stat-badge">🏆 Zirve: <strong>${group.maxNet} Net</strong></span>
+                <span class="exam-group-stat-badge">📅 ${formatDate(group.tarih)}</span>
+                ${group.reportedCount > 0 ? `<span class="exam-group-stat-badge badge-success-light">📑 <strong>${group.reportedCount}/${group.totalStudents}</strong> AI Raporlu</span>` : `<span class="exam-group-stat-badge" style="color: #94a3b8;">⚪ Henüz AI Raporu Üretilmedi</span>`}
+              </div>
+            </div>
+
+            <div class="exam-group-actions" onclick="event.stopPropagation()">
+              <button class="btn btn-sm btn-outline font-bold" onclick="window.app.exportBulkExamReportsByName('${safeExamName}')" title="Bu sınavın tüm öğrencileri için AI analizli toplu rapor PDF'i indir">
+                📥 Toplu PDF
+              </button>
+              <button class="btn btn-sm btn-primary font-bold shadow-sm" onclick="window.app.toggleExamGroup('${escapeHtml(group.key)}')">
+                <span>👥 Öğrenciler (${group.totalStudents})</span>
+                <svg class="exam-group-toggle-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              <button class="btn btn-sm btn-ghost text-danger font-bold" onclick="window.app.deleteExamGroupConfirm('${safeExamName}')" title="Bu sınavı ve katılan tüm öğrencilerin sınav kayıtlarını sil">
+                🗑️ Sil
+              </button>
+            </div>
+          </div>
+
+          <div class="exam-group-body" id="exam-group-body-${gIdx}">
+            <div class="exam-group-students-table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr style="background: #f1f5f9;">
+                    <th style="width: 45px; text-align: center;">#</th>
+                    <th>Öğrenci Adı Soyadı</th>
+                    <th>Sınıf / Şube</th>
+                    <th>Toplam Net</th>
+                    <th>LGS Puanı</th>
+                    <th>AI Karne & Rapor Durumu</th>
+                    <th style="text-align: right;">İşlemler</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${sortedStudentExams.map((exam, sIdx) => {
+                    const student = (state.students || []).find((s) => s.id === exam.ogrenciId);
+                    const sName = student ? student.adSoyad : (exam.ogrenciAdSoyad || "Öğrenci");
+                    const sClass = student ? `${student.sinif}. Sınıf / ${student.sube}` : (exam.sinif || "8. Sınıf / 8-A");
+                    const report = (state.reports || []).find((r) => (r.kullanilanSinavIdler || []).includes(exam.id) || r.sinavId === exam.id);
+
+                    return `
+                      <tr>
+                        <td style="text-align: center; color: #94a3b8; font-weight: 700; font-size: 11.5px;">${sIdx + 1}</td>
+                        <td>
+                          <div class="font-bold text-dark cursor-pointer" onclick="window.app.openStudentProfile('${exam.ogrenciId}')">${escapeHtml(sName)}</div>
+                          <div style="font-size: 11px; color: var(--text-muted);">${(exam.dersSonuclari || []).length} Ders Çözümlendi</div>
+                        </td>
+                        <td><span class="badge badge-secondary">${escapeHtml(sClass)}</span></td>
+                        <td><strong class="text-primary" style="font-size: 13.5px;">${exam.toplamNet || "-"} Net</strong></td>
+                        <td>${exam.puan ? `<span class="badge badge-warning font-bold">${exam.puan}</span>` : "-"}</td>
+                        <td>
+                          ${report ? `
+                            <button class="btn btn-sm btn-success text-white font-bold" onclick="window.app.viewReportDetail('${report.id}')" title="Hazır AI analiz raporunu ve çalışma programını aç">
+                              ✓ AI Raporu Hazır (${formatDateTime(report.createdAt || report.olusturmaTarihi)}) ↗
+                            </button>
+                          ` : `
+                            <button class="btn btn-sm btn-outline text-primary font-bold" onclick="window.app.analyzeSingleExam('${exam.id}')" title="Bu öğrenci için hemen yapay zekâ analiz raporu oluştur">
+                              🤖 AI Analiz Et
+                            </button>
+                          `}
+                        </td>
+                        <td style="text-align: right;">
+                          <div class="btn-group">
+                            <button class="btn btn-sm btn-ghost" onclick="window.app.viewExamDetail('${exam.id}')" title="Sınav net ve soru detaylarını incele">📊 Detay</button>
+                            <button class="btn btn-sm btn-ghost text-danger" onclick="window.app.deleteExamConfirm('${exam.id}')" title="Bu sınav kaydını sil">🗑️ Sil</button>
+                          </div>
+                        </td>
+                      </tr>
+                    `;
+                  }).join("")}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       `;
     }).join("");
   }
@@ -3644,6 +3743,9 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       this.isBatchProcessing = false;
       this.isBatchCancelled = false;
       this.aiAbortController = null;
+      this.expandedExamKeys = new Set();
+      this.examSearchQuery = "";
+      this.examSortOrder = "yeniden-eskiye";
       this.activeAnalysis = {
         status: "idle", // "idle" | "running" | "completed"
         type: "single", // "single" | "batch"
@@ -5016,16 +5118,148 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       this.navigate("aiAnalysis");
     }
 
-    filterExams() {
-      const query = document.getElementById("exam-search-input")?.value.toLowerCase().trim() || "";
-      const studentFilter = document.getElementById("exam-student-filter")?.value || "all";
-      const filtered = store.getState().exams.filter((e) => {
-        const student = store.getState().students.find((s) => s.id === e.ogrenciId);
-        const name = (student ? student.adSoyad : "").toLowerCase();
-        return (e.sinavAdi.toLowerCase().includes(query) || name.includes(query)) && (studentFilter === "all" || e.ogrenciId === studentFilter);
+    toggleExamGroup(groupKey) {
+      if (this.expandedExamKeys.has(groupKey)) {
+        this.expandedExamKeys.delete(groupKey);
+      } else {
+        this.expandedExamKeys.add(groupKey);
+      }
+      this.refreshExamsContainer();
+    }
+
+    toggleAllExamGroups() {
+      const groups = this.getCalculatedExamGroups();
+      if (this.expandedExamKeys.size > 0) {
+        this.expandedExamKeys.clear();
+      } else {
+        groups.forEach((g) => this.expandedExamKeys.add(g.key));
+      }
+      this.refreshExamsContainer();
+    }
+
+    onExamSearchInput(val) {
+      this.examSearchQuery = (val || "").trim();
+      this.refreshExamsContainer();
+    }
+
+    onExamSortChange(val) {
+      this.examSortOrder = val || "yeniden-eskiye";
+      this.refreshExamsContainer();
+    }
+
+    refreshExamsContainer() {
+      const container = document.getElementById("exam-groups-container");
+      if (container) {
+        const groups = this.getCalculatedExamGroups();
+        container.innerHTML = renderExamGroupCards(groups, store.getState());
+      } else {
+        this.renderCurrentView();
+      }
+    }
+
+    getCalculatedExamGroups() {
+      const state = store.getState();
+      const searchQuery = (this.examSearchQuery || "").toLowerCase().trim();
+      const sortOrder = this.examSortOrder || "yeniden-eskiye";
+
+      const groupsMap = new Map();
+
+      state.exams.forEach((exam) => {
+        if (!exam) return;
+        const rawName = (exam.sinavAdi || "Genel Deneme Sınavı").trim();
+        const key = rawName.toLowerCase();
+
+        if (!groupsMap.has(key)) {
+          groupsMap.set(key, {
+            key: key,
+            sinavAdi: rawName,
+            tarih: exam.tarih || "",
+            tur: exam.tur || "kazanimli",
+            createdAt: exam.createdAt || 0,
+            exams: [],
+            totalNetSum: 0,
+            maxNet: 0,
+            minNet: 999
+          });
+        }
+
+        const group = groupsMap.get(key);
+        group.exams.push(exam);
+
+        const netVal = Number(exam.toplamNet) || 0;
+        group.totalNetSum += netVal;
+        if (netVal > group.maxNet) group.maxNet = netVal;
+        if (netVal < group.minNet) group.minNet = netVal;
+
+        if (exam.tarih && (!group.tarih || new Date(exam.tarih) > new Date(group.tarih))) {
+          group.tarih = exam.tarih;
+        }
+        if (exam.createdAt && (!group.createdAt || exam.createdAt > group.createdAt)) {
+          group.createdAt = exam.createdAt;
+        }
       });
-      const tbody = document.getElementById("exams-tbody");
-      if (tbody) tbody.innerHTML = renderExamRows(filtered, store.getState().students, Array.from(store.getState().selectedExamIds));
+
+      let groups = Array.from(groupsMap.values());
+      groups.forEach((g) => {
+        g.totalStudents = g.exams.length;
+        g.avgNet = g.totalStudents > 0 ? Number((g.totalNetSum / g.totalStudents).toFixed(2)) : 0;
+        if (g.minNet === 999) g.minNet = 0;
+        g.reportedCount = g.exams.filter((ex) => {
+          return (state.reports || []).some((r) => (r.kullanilanSinavIdler || []).includes(ex.id) || r.sinavId === ex.id);
+        }).length;
+      });
+
+      if (searchQuery) {
+        groups = groups.filter((g) => {
+          if (g.sinavAdi.toLowerCase().includes(searchQuery)) return true;
+          return g.exams.some((ex) => {
+            const st = state.students.find((s) => s.id === ex.ogrenciId);
+            const stName = st ? st.adSoyad.toLowerCase() : (ex.ogrenciAdSoyad || "").toLowerCase();
+            return stName.includes(searchQuery);
+          });
+        });
+      }
+
+      groups.sort((a, b) => {
+        switch (sortOrder) {
+          case "yeniden-eskiye": {
+            const tA = new Date(a.tarih || a.createdAt || 0).getTime() || 0;
+            const tB = new Date(b.tarih || b.createdAt || 0).getTime() || 0;
+            return tB - tA;
+          }
+          case "eskiden-yeniye": {
+            const tA = new Date(a.tarih || a.createdAt || 0).getTime() || 0;
+            const tB = new Date(b.tarih || b.createdAt || 0).getTime() || 0;
+            return tA - tB;
+          }
+          case "net-yuksek":
+            return b.avgNet - a.avgNet;
+          case "net-dusuk":
+            return a.avgNet - b.avgNet;
+          case "ogrenci-cok":
+            return b.totalStudents - a.totalStudents;
+          case "isim-az":
+            return a.sinavAdi.localeCompare(b.sinavAdi, "tr");
+          default:
+            return 0;
+        }
+      });
+
+      return groups;
+    }
+
+    exportBulkExamReportsByName(examName) {
+      if (!examName) return;
+      PDFService.exportBulkExamReports(examName, store.getState());
+    }
+
+    deleteExamGroupConfirm(examName) {
+      if (!examName) return;
+      const count = store.getState().exams.filter((e) => (e.sinavAdi || "").trim() === examName.trim()).length;
+      if (confirm(`"${examName}" sınavına ait ${count} öğrenci kaydının tamamını silmek istediğinize emin misiniz?`)) {
+        store.deleteExamsByName(examName);
+        showToast(`✓ "${examName}" sınavı ve ${count} öğrenci kaydı silindi.`, "info");
+      }
     }
 
     quickSetAiProvider(providerId) {

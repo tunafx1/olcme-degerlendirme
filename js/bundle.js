@@ -3294,14 +3294,15 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     const app = window.app || {};
     const expandedKeys = app.expandedExamKeys || new Set();
 
-    return groups.map((group, gIdx) => {
-      const isExpanded = expandedKeys.has(group.key);
+    return groups.map((group) => {
+      const gKey = group.groupKey || group.key;
+      const isExpanded = expandedKeys.has(gKey);
       const safeExamName = escapeHtml(group.sinavAdi);
       const sortedStudentExams = [...group.exams].sort((a, b) => (Number(b.toplamNet) || 0) - (Number(a.toplamNet) || 0));
 
       return `
-        <div class="exam-group-card ${isExpanded ? "expanded" : ""}" id="exam-group-card-${gIdx}" data-exam-key="${escapeHtml(group.key)}">
-          <div class="exam-group-header" onclick="window.app.toggleExamGroup('${escapeHtml(group.key)}')">
+        <div class="exam-group-card ${isExpanded ? "expanded" : ""}" id="exam-group-card-${gKey}" data-exam-key="${escapeHtml(group.key)}">
+          <div class="exam-group-header" onclick="window.app.toggleExamGroup('${gKey}')">
             <div class="exam-group-info">
               <div class="exam-group-title-row">
                 <h3 class="exam-group-title">${safeExamName}</h3>
@@ -3318,16 +3319,10 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             </div>
 
             <div class="exam-group-actions" onclick="event.stopPropagation()">
-              <button class="btn btn-sm btn-outline font-bold text-dark" onclick="window.app.openRenameExamModal('${safeExamName}')" title="Bu sınav uygulamasının adını değiştir">
-                ✏️ Adı Değiştir
-              </button>
-              <button class="btn btn-sm btn-ghost font-bold text-primary" onclick="window.app.openMergeExamsModal('${safeExamName}')" title="Bu sınavı başka bir sınav uygulaması ile birleştir">
-                🔗 Birleştir
-              </button>
               <button class="btn btn-sm btn-outline font-bold" onclick="window.app.exportBulkExamReportsByName('${safeExamName}')" title="Bu sınavın tüm öğrencileri için AI analizli toplu rapor PDF'i indir">
                 📥 Toplu PDF
               </button>
-              <button class="btn btn-sm btn-primary font-bold shadow-sm" onclick="window.app.toggleExamGroup('${escapeHtml(group.key)}')">
+              <button class="btn btn-sm btn-primary font-bold shadow-sm" onclick="event.stopPropagation(); window.app.toggleExamGroup('${gKey}')">
                 <span>👥 Öğrenciler (${group.totalStudents})</span>
                 <svg class="exam-group-toggle-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
               </button>
@@ -3337,7 +3332,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             </div>
           </div>
 
-          <div class="exam-group-body" id="exam-group-body-${gIdx}">
+          <div class="exam-group-body" id="exam-group-body-${gKey}">
             <div class="exam-group-students-table-wrap">
               <table class="data-table">
                 <thead>
@@ -5227,7 +5222,13 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       } else {
         this.expandedExamKeys.add(groupKey);
       }
-      this.refreshExamsContainer();
+
+      const card = document.getElementById("exam-group-card-" + groupKey);
+      if (card) {
+        card.classList.toggle("expanded", this.expandedExamKeys.has(groupKey));
+      } else {
+        this.refreshExamsContainer();
+      }
     }
 
     toggleAllExamGroups() {
@@ -5235,7 +5236,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       if (this.expandedExamKeys.size > 0) {
         this.expandedExamKeys.clear();
       } else {
-        groups.forEach((g) => this.expandedExamKeys.add(g.key));
+        groups.forEach((g) => this.expandedExamKeys.add(g.groupKey || g.key));
       }
       this.refreshExamsContainer();
     }
@@ -5518,6 +5519,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         if (!groupsMap.has(key)) {
           groupsMap.set(key, {
             key: key,
+            groupKey: "grp_" + encodeURIComponent(key).replace(/[^a-zA-Z0-9_]/g, "_"),
             sinavAdi: rawName,
             tarih: exam.tarih || "",
             tur: exam.tur || "kazanimli",

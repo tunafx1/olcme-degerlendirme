@@ -74,21 +74,6 @@ export function renderExamsView() {
           </div>
         </div>
       </div>
-
-      <!-- ÇOKLU SEÇİM YÜZEN AKSİYON ÇUBUĞU (FLOATING ACTION BAR) -->
-      <div id="multi-exam-bar" class="floating-action-bar ${selectedIds.length > 0 ? "active" : ""}">
-        <div class="floating-bar-info">
-          <span class="badge badge-primary font-bold" id="selected-count-badge">${selectedIds.length} Sınav Seçildi</span>
-          <span class="floating-bar-text">Karşılaştırmalı gelişim raporu ve eksik konu analizi oluşturmaya hazır.</span>
-        </div>
-        <div class="floating-bar-actions">
-          <button class="btn btn-sm btn-ghost text-white" onclick="window.app.clearSelectedExams()">Seçimi Temizle</button>
-          <button class="btn btn-sm btn-accent shadow-glow" onclick="window.app.startAnalysisFromSelection()">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z"/></svg>
-            <span>Yapay Zekâ Analizini Başlat</span>
-          </button>
-        </div>
-      </div>
     </div>
   `;
 }

@@ -2742,18 +2742,6 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             </div>
           </div>
         </div>
-
-        <div id="multi-exam-bar" class="floating-action-bar ${selectedIds.length > 0 ? "active" : ""}">
-          <div class="floating-bar-info">
-            <span class="badge badge-primary font-bold" id="selected-count-badge">${selectedIds.length} Sınav Seçildi</span>
-            <span class="floating-bar-text">Karşılaştırmalı gelişim raporu ve eksik konu analizi hazır.</span>
-          </div>
-          <div class="floating-bar-actions">
-            <button class="btn btn-sm btn-ghost text-white" onclick="window.app.clearSelectedExams()">Seçimi Kaldır</button>
-            <button class="btn btn-sm btn-outline text-danger border-danger font-bold" onclick="window.app.deleteSelectedExamsConfirm()" style="background: rgba(239,68,68,0.15);">🗑️ Seçilenleri Sil (${selectedIds.length})</button>
-            <button class="btn btn-sm btn-accent shadow-glow" onclick="window.app.startAnalysisFromSelection()">Yapay Zekâ Analizini Başlat</button>
-          </div>
-        </div>
       </div>
     `;
   }

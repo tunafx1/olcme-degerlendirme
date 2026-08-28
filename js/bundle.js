@@ -3305,6 +3305,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             <div class="exam-group-info">
               <div class="exam-group-title-row">
                 <h3 class="exam-group-title">${safeExamName}</h3>
+                <button type="button" class="btn btn-sm btn-ghost p-1" style="font-size: 13px; line-height: 1;" onclick="event.stopPropagation(); window.app.openRenameExamModal('${safeExamName}')" title="Sınav Adını Değiştir / Düzenle">✏️</button>
                 <span class="badge ${group.tur === "kazanimli" ? "badge-success" : "badge-secondary"}" style="font-size: 10.5px;">${group.tur === "kazanimli" ? "🎯 Kazanımlı" : "📊 Kazanımsız"}</span>
               </div>
               <div class="exam-group-meta-badges">
@@ -3317,6 +3318,9 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             </div>
 
             <div class="exam-group-actions" onclick="event.stopPropagation()">
+              <button class="btn btn-sm btn-outline font-bold text-dark" onclick="window.app.openRenameExamModal('${safeExamName}')" title="Bu sınav uygulamasının adını değiştir">
+                ✏️ Adı Değiştir
+              </button>
               <button class="btn btn-sm btn-ghost font-bold text-primary" onclick="window.app.openMergeExamsModal('${safeExamName}')" title="Bu sınavı başka bir sınav uygulaması ile birleştir">
                 🔗 Birleştir
               </button>
@@ -3366,11 +3370,13 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
                         <td>${exam.puan ? `<span class="badge badge-warning font-bold">${exam.puan}</span>` : "-"}</td>
                         <td>
                           ${report ? `
-                            <button class="btn btn-sm btn-success text-white font-bold" onclick="window.app.viewReportDetail('${report.id}')" title="Hazır AI analiz raporunu ve çalışma programını aç">
-                              ✓ AI Raporu Hazır (${formatDateTime(report.createdAt || report.olusturmaTarihi)}) ↗
+                            <button class="btn btn-sm btn-success font-bold shadow-sm" style="display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; font-size: 11.5px; border-radius: 6px; color: #ffffff !important; background: #10b981 !important; border: 1px solid #059669 !important;" onclick="window.app.viewReportDetail('${report.id}')" title="Hazır AI analiz raporunu ve çalışma programını aç">
+                              <span>✓ AI Raporu Hazır</span>
+                              <span style="font-size: 10px; opacity: 0.95;">(${formatDateTime(report.createdAt || report.olusturmaTarihi)})</span>
+                              <span>↗</span>
                             </button>
                           ` : `
-                            <button class="btn btn-sm btn-outline text-primary font-bold" onclick="window.app.analyzeSingleExam('${exam.id}')" title="Bu öğrenci için hemen yapay zekâ analiz raporu oluştur">
+                            <button class="btn btn-sm btn-outline text-primary font-bold" style="padding: 5px 10px; font-size: 11.5px; border-radius: 6px;" onclick="window.app.analyzeSingleExam('${exam.id}')" title="Bu öğrenci için hemen yapay zekâ analiz raporu oluştur">
                               🤖 AI Analiz Et
                             </button>
                           `}
@@ -5401,6 +5407,84 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       store.notify("EXAMS_UPDATED", state.exams);
       this.closeModal("merge-exams-modal");
       showToast(`✓ "${sourceName}" sınavındaki ${affectedExams.length} öğrenci başarıyla "${targetName}" ile birleştirildi!`, "success");
+    }
+
+    openRenameExamModal(currentExamName) {
+      if (!currentExamName) return;
+      const state = store.getState();
+      const count = state.exams.filter((e) => (e.sinavAdi || "").trim() === currentExamName.trim()).length;
+
+      const modalHtml = `
+        <div class="modal-backdrop" id="rename-exam-modal" onclick="if(event.target === this) window.app.closeModal('rename-exam-modal')">
+          <div class="modal-dialog modal-md animate-scale-up">
+            <div class="modal-header">
+              <div class="d-flex items-center gap-2">
+                <span style="font-size: 20px;">✏️</span>
+                <h3 class="modal-title">Sınav Adını Değiştir</h3>
+              </div>
+              <button class="modal-close" onclick="window.app.closeModal('rename-exam-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+              <div class="form-group mb-3">
+                <label class="form-label font-bold">Mevcut Sınav Adı:</label>
+                <input type="text" class="form-control" value="${escapeHtml(currentExamName)}" disabled style="background: #f1f5f9; color: #64748b;" />
+                <span style="font-size: 11.5px; color: var(--text-muted);">Bu sınava ait toplam <strong>${count}</strong> öğrenci kaydı bulunmaktadır.</span>
+              </div>
+
+              <div class="form-group mb-3">
+                <label class="form-label font-bold text-primary">Yeni Sınav Adı:</label>
+                <input type="text" id="rename-exam-new-name-input" class="form-control font-bold" value="${escapeHtml(currentExamName)}" placeholder="Örn: 8. Sınıf Gelişim Takip-6 (Workwin 2025-26)" autofocus />
+              </div>
+
+              <div class="p-3 card" style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px;">
+                <span style="font-size: 12px; color: #1e40af;">
+                  ℹ️ Sınav adını güncellediğinizde, bu sınava katılan tüm öğrencilerin sınav kayıtları otomatik olarak yeni isimle güncellenecektir.
+                </span>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline" onclick="window.app.closeModal('rename-exam-modal')">İptal</button>
+              <button type="button" class="btn btn-primary font-bold shadow-glow" onclick="window.app.executeRenameExam('${escapeHtml(currentExamName)}')">💾 Sınav Adını Güncelle</button>
+            </div>
+          </div>
+        </div>
+      `;
+      this.renderModalContainer(modalHtml);
+    }
+
+    executeRenameExam(oldExamName) {
+      const newNameInput = document.getElementById("rename-exam-new-name-input");
+      const newName = newNameInput ? newNameInput.value.trim() : "";
+
+      if (!newName) {
+        showToast("Lütfen geçerli bir sınav adı giriniz.", "warning");
+        return;
+      }
+      if (newName === oldExamName) {
+        this.closeModal("rename-exam-modal");
+        return;
+      }
+
+      const state = store.getState();
+      let affectedCount = 0;
+      state.exams = state.exams.map((e) => {
+        if ((e.sinavAdi || "").trim() === oldExamName.trim()) {
+          affectedCount++;
+          return { ...e, sinavAdi: newName };
+        }
+        return e;
+      });
+
+      store.saveToStorage(APP_CONFIG.storageKeys.EXAMS, state.exams);
+      state.exams.forEach((ex) => {
+        if (ex.sinavAdi === newName) {
+          FirebaseService.saveDocument("sinavlar", ex.id, ex);
+        }
+      });
+
+      store.notify("EXAMS_UPDATED", state.exams);
+      this.closeModal("rename-exam-modal");
+      showToast(`✓ Sınav adı "${newName}" olarak güncellendi (${affectedCount} öğrenci kaydı güncellendi).`, "success");
     }
 
     getCalculatedExamGroups() {

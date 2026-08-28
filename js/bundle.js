@@ -4112,7 +4112,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const hasKey = AIService.checkApiKey(provider, aiConfig);
       const activeEngineLabel = provider === "openai" ? `OpenAI (${aiConfig.openaiModel || 'gpt-4o-mini'})` : (provider === "gemini" ? `Google Gemini (${aiConfig.geminiModel || 'gemini-1.5-flash'})` : `Claude (${aiConfig.claudeModel || '3.5-sonnet'})`);
 
-      this.uploadExamTargetMode = this.uploadExamTargetMode || "new";
+      this.uploadExamTargetMode = null;
       this.uploadTargetGrade = this.uploadTargetGrade || "all";
 
       const modalHtml = `
@@ -4183,16 +4183,16 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
                   <span class="badge badge-secondary" style="font-size: 11px;">Mükerrer veya farklı isim oluşmasını engeller</span>
                 </div>
                 <div class="d-flex gap-2 flex-wrap mb-2">
-                  <button type="button" id="btn-target-mode-new" class="btn btn-sm ${this.uploadExamTargetMode !== 'existing' ? 'btn-primary shadow-sm' : 'btn-outline'} font-bold" onclick="window.app.setUploadExamTargetMode('new')">
+                  <button type="button" id="btn-target-mode-new" class="btn btn-sm btn-outline font-bold" onclick="window.app.setUploadExamTargetMode('new')">
                     ✨ Yeni Sınav Olarak Ekle (AI Otomatik İsimlendirsin)
                   </button>
-                  <button type="button" id="btn-target-mode-existing" class="btn btn-sm ${this.uploadExamTargetMode === 'existing' ? 'btn-primary shadow-sm' : 'btn-outline'} font-bold" onclick="window.app.setUploadExamTargetMode('existing')">
+                  <button type="button" id="btn-target-mode-existing" class="btn btn-sm btn-outline font-bold" onclick="window.app.setUploadExamTargetMode('existing')">
                     📂 Mevcut Sınav Uygulamasına Dahil Et
                   </button>
                 </div>
 
                 <!-- Mevcut Sınav Seçim Kutusu -->
-                <div id="existing-exam-selection-box" style="display: ${this.uploadExamTargetMode === 'existing' ? 'block' : 'none'}; background: #f8fafc; padding: 12px 16px; border-radius: 6px; border: 1px solid #e2e8f0; margin-top: 8px;">
+                <div id="existing-exam-selection-box" style="display: none; background: #f8fafc; padding: 12px 16px; border-radius: 6px; border: 1px solid #e2e8f0; margin-top: 8px;">
                   <div class="grid-2-col" style="gap: 12px;">
                     <div class="form-group mb-0">
                       <label class="form-label font-bold" style="font-size: 12px; color: #334155;">1. Sınıf Seviyesi Seçiniz:</label>
@@ -4218,7 +4218,17 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
                 </div>
               </div>
 
-              <div class="excel-drop-zone p-5 text-center" id="pdf-drop-zone-box" style="border: 2px dashed var(--primary-color); border-radius: var(--radius-md); cursor: pointer;" onclick="document.getElementById('pdf-file-input').click()">
+              <!-- HEDEF SEÇİLMEDEN ÖNCE GÖRÜNEN YÖNLENDİRME KUTUSU -->
+              <div id="pdf-target-unselected-hint" class="p-4 text-center card mb-3 animate-fade-in" style="background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: var(--radius-md);">
+                <div style="font-size: 26px; margin-bottom: 6px;">👆</div>
+                <h4 class="font-bold" style="font-size: 15px; color: #1e293b; margin: 0 0 6px 0;">Lütfen Önce Sınav Hedefini Seçiniz</h4>
+                <p class="text-muted" style="font-size: 13px; margin: 0;">
+                  PDF yükleme alanının açılması için yukarıdaki <strong>"✨ Yeni Sınav Olarak Ekle"</strong> veya <strong>"📂 Mevcut Sınav Uygulamasına Dahil Et"</strong> butonlarından birine tıklayınız.
+                </p>
+              </div>
+
+              <!-- PDF DOSYA YÜKLEME ALANI (Hedef seçildikten sonra açılır) -->
+              <div class="excel-drop-zone p-5 text-center" id="pdf-drop-zone-box" style="display: none; border: 2px dashed var(--primary-color); border-radius: var(--radius-md); cursor: pointer;" onclick="document.getElementById('pdf-file-input').click()">
                 <input type="file" id="pdf-file-input" accept=".pdf" style="display: none;" onchange="window.app.handlePdfFileUpload(this.files[0])" />
                 <svg viewBox="0 0 24 24" width="56" height="56" fill="none" stroke="var(--primary-color)" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6M9 15l3-3 3 3"/></svg>
                 <h3 class="mt-3 font-bold" style="font-size: 18px;">PDF Sınav Belgesini Seçin (1 Sayfa veya 70+ Sayfa)</h3>
@@ -5260,6 +5270,11 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const box = document.getElementById("existing-exam-selection-box");
       const newBtn = document.getElementById("btn-target-mode-new");
       const existingBtn = document.getElementById("btn-target-mode-existing");
+      const hint = document.getElementById("pdf-target-unselected-hint");
+      const dropZone = document.getElementById("pdf-drop-zone-box");
+
+      if (hint) hint.style.display = "none";
+      if (dropZone) dropZone.style.display = "block";
 
       if (box) box.style.display = mode === "existing" ? "block" : "none";
       if (newBtn && existingBtn) {

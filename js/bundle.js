@@ -167,17 +167,27 @@
     }
   }
 
-  function formatDateTime(dateStr) {
-    if (!dateStr) return "-";
+  function formatDateTime(dateVal) {
+    if (!dateVal) return "-";
     try {
-      const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return dateStr;
+      // Sadece "YYYY-MM-DD" olan eski kayıtlarda UTC 03:00 kaymasını engelle
+      if (typeof dateVal === "string") {
+        const trimmed = dateVal.trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+          const parts = trimmed.split("-");
+          const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+          return d.toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric" });
+        }
+      }
+
+      const d = new Date(dateVal);
+      if (isNaN(d.getTime())) return String(dateVal);
+
       const datePart = d.toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric" });
-      const hours = String(d.getHours()).padStart(2, "0");
-      const minutes = String(d.getMinutes()).padStart(2, "0");
-      return `${datePart}, ${hours}:${minutes}`;
+      const timePart = d.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", hour12: false });
+      return `${datePart}, ${timePart}`;
     } catch (e) {
-      return dateStr;
+      return String(dateVal);
     }
   }
 
@@ -2836,6 +2846,10 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     }
 
     addReport(report) {
+      if (!report.createdAt) report.createdAt = Date.now();
+      if (!report.olusturmaTarihi || report.olusturmaTarihi.length <= 10) {
+        report.olusturmaTarihi = new Date().toISOString();
+      }
       this.state.reports = [report, ...this.state.reports];
       this.saveToStorage(APP_CONFIG.storageKeys.REPORTS, this.state.reports);
       FirebaseService.saveDocument("raporlar", report.id, report);

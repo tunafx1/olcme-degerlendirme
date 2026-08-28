@@ -276,9 +276,13 @@
     static db = null;
     static storage = null;
     static isInitialized = false;
+    static unsubscribers = [];
+    static lastQuotaExceeded = false;
+    static lastSyncTime = null;
 
-    static init(config) {
+    static init(config, storeInstance) {
       if (!config || !config.apiKey || !config.projectId) return false;
+      const targetDb = config.databaseId || "olcme-uygulama";
       try {
         if (window.firebase && window.firebase.initializeApp) {
           if (window.firebase.apps && window.firebase.apps.length > 0) {
@@ -287,12 +291,11 @@
             this.app = window.firebase.initializeApp(config);
           }
           
-          // olcme-uygulama veritabanı bağlantısı
           try {
-            this.db = window.firebase.app().firestore("olcme-uygulama");
+            this.db = window.firebase.app().firestore(targetDb);
           } catch (dbErr) {
             try {
-              this.db = window.firebase.firestore(this.app, "olcme-uygulama");
+              this.db = window.firebase.firestore(this.app, targetDb);
             } catch (err2) {
               this.db = window.firebase.firestore ? window.firebase.firestore() : null;
             }
@@ -300,7 +303,11 @@
           
           this.storage = window.firebase.storage ? window.firebase.storage() : null;
           this.isInitialized = true;
-          console.log("[Firebase] Firestore veritabanına başarıyla bağlanıldı (olcme-uygulama).");
+          console.log(`[Firebase] Firestore (${targetDb}) veritabanına başarıyla bağlanıldı.`);
+
+          if (storeInstance) {
+            this.setupRealtimeListeners(storeInstance);
+          }
           return true;
         }
         return false;
@@ -308,6 +315,77 @@
         console.warn("[Firebase] Başlatma uyarısı:", e);
         return false;
       }
+    }
+
+    static setupRealtimeListeners(storeInstance) {
+      // Önceki listener'ları temizle
+      this.unsubscribers.forEach((unsub) => { try { unsub(); } catch (e) {} });
+      this.unsubscribers = [];
+
+      if (!this.isInitialized || !this.db) return;
+
+      const collections = [
+        { name: "ogrenciler", stateKey: "students", storageKey: APP_CONFIG.storageKeys.STUDENTS, event: "STUDENTS_SYNCED" },
+        { name: "sinavlar", stateKey: "exams", storageKey: APP_CONFIG.storageKeys.EXAMS, event: "EXAMS_SYNCED" },
+        { name: "raporlar", stateKey: "reports", storageKey: APP_CONFIG.storageKeys.REPORTS, event: "REPORTS_SYNCED" }
+      ];
+
+      collections.forEach(({ name, stateKey, storageKey, event }) => {
+        try {
+          const unsub = this.db.collection(name).onSnapshot(
+            (snapshot) => {
+              this.lastQuotaExceeded = false;
+              this.lastSyncTime = new Date();
+              const docs = [];
+              snapshot.forEach((doc) => {
+                docs.push({ id: doc.id, ...doc.data() });
+              });
+
+              // Sadece veride gerçek bir değişiklik varsa güncelle
+              const currentJson = JSON.stringify(storeInstance.state[stateKey]);
+              const newJson = JSON.stringify(docs);
+              if (currentJson !== newJson) {
+                storeInstance.state[stateKey] = docs;
+                storeInstance.saveToStorage(storageKey, docs);
+                storeInstance.notify(event, docs);
+                console.log(`[Firestore Canlı Senkronizasyon] ${name} güncellendi (${docs.length} kayıt).`);
+              }
+            },
+            (err) => {
+              if (err.code === "resource-exhausted" || (err.message && err.message.includes("Quota"))) {
+                this.lastQuotaExceeded = true;
+                console.warn("[Firestore Quota Warning] Günlük okuma kotası aşıldı (RESOURCE_EXHAUSTED).");
+              } else {
+                console.warn(`[Firestore onSnapshot ${name}]:`, err.message);
+              }
+            }
+          );
+          this.unsubscribers.push(unsub);
+        } catch (e) {
+          console.warn(`[Firestore setupRealtimeListeners ${name}]:`, e);
+        }
+      });
+
+      // Kurum dinleyicisi
+      try {
+        const unsubKurum = this.db.collection("kurumlar").onSnapshot(
+          (snapshot) => {
+            snapshot.forEach((doc) => {
+              const data = doc.data();
+              if (data && JSON.stringify(data) !== JSON.stringify(storeInstance.state.institution)) {
+                storeInstance.state.institution = { ...storeInstance.state.institution, ...data };
+                storeInstance.saveToStorage(APP_CONFIG.storageKeys.INSTITUTION, storeInstance.state.institution);
+                if (data.temaRengi) storeInstance.applyTheme(data.temaRengi);
+                storeInstance.notify("INSTITUTION_SYNCED", storeInstance.state.institution);
+              }
+            });
+          },
+          (err) => {
+            if (err.code === "resource-exhausted") this.lastQuotaExceeded = true;
+          }
+        );
+        this.unsubscribers.push(unsubKurum);
+      } catch (e) {}
     }
 
     static jsToFirestoreFields(obj) {
@@ -343,11 +421,12 @@
     static async saveDocument(collectionName, docId, data) {
       const config = store?.getState()?.firebaseConfig || DEFAULT_FIREBASE_CONFIG;
       const apiKey = config.apiKey;
+      const targetDb = config.databaseId || "olcme-uygulama";
       const projectId = config.projectId || "olcme-uygulama";
       
       // 1. Doğrudan REST API ile olcme-uygulama veritabanına yaz
       try {
-        const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/olcme-uygulama/documents/${collectionName}/${docId}?key=${apiKey}`;
+        const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${targetDb}/documents/${collectionName}/${docId}?key=${apiKey}`;
         const body = JSON.stringify({ fields: this.jsToFirestoreFields(data) });
         await fetch(url, {
           method: "PATCH",
@@ -369,9 +448,10 @@
     static async deleteDocument(collectionName, docId) {
       const config = store?.getState()?.firebaseConfig || DEFAULT_FIREBASE_CONFIG;
       const apiKey = config.apiKey;
+      const targetDb = config.databaseId || "olcme-uygulama";
       const projectId = config.projectId || "olcme-uygulama";
       try {
-        const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/olcme-uygulama/documents/${collectionName}/${docId}?key=${apiKey}`;
+        const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${targetDb}/documents/${collectionName}/${docId}?key=${apiKey}`;
         await fetch(url, { method: "DELETE" });
       } catch (e) {}
 
@@ -382,34 +462,34 @@
       }
     }
 
-    /**
-     * Firestore'dan tüm koleksiyonları çeker ve yerel state ile senkronize eder.
-     * KRİTİK: Boş koleksiyon (0 döküman) = Firestore gerçeği. Yerel veriyi de sıfırla.
-     * Network hatası = null döner, yerel veriye dokunma.
-     */
-    static async syncAllFromFirestore(store) {
-      const config = store?.getState()?.firebaseConfig || DEFAULT_FIREBASE_CONFIG;
+    static async syncAllFromFirestore(storeInstance, isManual = false) {
+      const config = storeInstance?.getState()?.firebaseConfig || DEFAULT_FIREBASE_CONFIG;
       const apiKey = config.apiKey;
+      const targetDb = config.databaseId || "olcme-uygulama";
       const projectId = config.projectId || "olcme-uygulama";
-      if (!apiKey) return false;
+      if (!apiKey) {
+        if (isManual) showToast("Firebase API anahtarı bulunamadı.", "warning");
+        return false;
+      }
 
       try {
-        /**
-         * Koleksiyonu Firestore'dan çeker.
-         * Başarılı ama boş koleksiyon → [] (array) döner
-         * Network / izin hatası → null döner (yerel veriye dokunma)
-         */
         const fetchCollection = async (coll) => {
           try {
-            const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/olcme-uygulama/documents:runQuery?key=${apiKey}`;
+            const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${targetDb}/documents:runQuery?key=${apiKey}`;
             const res = await fetch(url, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ structuredQuery: { from: [{ collectionId: coll }] } })
             });
-            if (!res.ok) return null; // Network/izin hatası → yerel veriye dokunma
+
+            if (res.status === 429) {
+              this.lastQuotaExceeded = true;
+              console.warn(`[Firestore Quota] ${coll} çekilirken kota aşıldı (HTTP 429).`);
+              return "QUOTA_EXCEEDED";
+            }
+
+            if (!res.ok) return null;
             const data = await res.json();
-            // Firestore boş koleksiyon için [{readTime: "..."}] gibi document'sız yanıt döner
             const docs = (data || [])
               .filter((item) => item.document && item.document.fields)
               .map((item) => {
@@ -417,63 +497,87 @@
                 const fields = this.firestoreFieldsToJs(item.document.fields);
                 return { id, ...fields };
               });
-            return docs; // Başarılı → [] veya [{...}, ...]
+            return docs;
           } catch (e) {
-            return null; // Network hatası → yerel veriye dokunma
+            return null;
           }
         };
 
         let hasChange = false;
+        let quotaHit = false;
 
-        // 1. Öğrenciler — Firestore kaynağını TEK GERÇEK olarak kabul et
+        // 1. Öğrenciler
         const students = await fetchCollection("ogrenciler");
-        if (students !== null) { // null = hata, [] = Firestore gerçekten boş
-          const currentJson = JSON.stringify(store.state.students);
+        if (students === "QUOTA_EXCEEDED") {
+          quotaHit = true;
+        } else if (students !== null) {
+          const currentJson = JSON.stringify(storeInstance.state.students);
           const newJson = JSON.stringify(students);
           if (currentJson !== newJson) {
-            store.state.students = students;
-            store.saveToStorage(APP_CONFIG.storageKeys.STUDENTS, students);
+            storeInstance.state.students = students;
+            storeInstance.saveToStorage(APP_CONFIG.storageKeys.STUDENTS, students);
             hasChange = true;
           }
         }
 
         // 2. Sınavlar
         const exams = await fetchCollection("sinavlar");
-        if (exams !== null) {
-          const currentJson = JSON.stringify(store.state.exams);
+        if (exams === "QUOTA_EXCEEDED") {
+          quotaHit = true;
+        } else if (exams !== null) {
+          const currentJson = JSON.stringify(storeInstance.state.exams);
           const newJson = JSON.stringify(exams);
           if (currentJson !== newJson) {
-            store.state.exams = exams;
-            store.saveToStorage(APP_CONFIG.storageKeys.EXAMS, exams);
+            storeInstance.state.exams = exams;
+            storeInstance.saveToStorage(APP_CONFIG.storageKeys.EXAMS, exams);
             hasChange = true;
           }
         }
 
         // 3. Raporlar
         const reports = await fetchCollection("raporlar");
-        if (reports !== null) {
-          const currentJson = JSON.stringify(store.state.reports);
+        if (reports === "QUOTA_EXCEEDED") {
+          quotaHit = true;
+        } else if (reports !== null) {
+          const currentJson = JSON.stringify(storeInstance.state.reports);
           const newJson = JSON.stringify(reports);
           if (currentJson !== newJson) {
-            store.state.reports = reports;
-            store.saveToStorage(APP_CONFIG.storageKeys.REPORTS, reports);
+            storeInstance.state.reports = reports;
+            storeInstance.saveToStorage(APP_CONFIG.storageKeys.REPORTS, reports);
             hasChange = true;
           }
         }
 
-        // 4. Kurum bilgileri
+        // 4. Kurumlar
         const kurumlar = await fetchCollection("kurumlar");
-        if (kurumlar !== null && kurumlar.length > 0) {
+        if (kurumlar === "QUOTA_EXCEEDED") {
+          quotaHit = true;
+        } else if (kurumlar !== null && kurumlar.length > 0) {
           const kurum = kurumlar[0];
-          if (kurum && JSON.stringify(kurum) !== JSON.stringify(store.state.institution)) {
-            store.state.institution = { ...store.state.institution, ...kurum };
-            store.saveToStorage(APP_CONFIG.storageKeys.INSTITUTION, store.state.institution);
+          if (kurum && JSON.stringify(kurum) !== JSON.stringify(storeInstance.state.institution)) {
+            storeInstance.state.institution = { ...storeInstance.state.institution, ...kurum };
+            storeInstance.saveToStorage(APP_CONFIG.storageKeys.INSTITUTION, storeInstance.state.institution);
             hasChange = true;
           }
+        }
+
+        this.lastQuotaExceeded = quotaHit;
+        this.lastSyncTime = new Date();
+
+        if (quotaHit) {
+          if (isManual) {
+            showToast("⚠️ Firebase Günlük Okuma Kotası (50.000 okuma) aşıldı. Cihazlar arası veri aktarımı için 'JSON Yedek İndir/Yükle' özelliğini kullanabilirsiniz.", "warning", 6000);
+          }
+          return false;
+        }
+
+        if (isManual) {
+          showToast(`Firestore (${targetDb}) ile başarıyla eşitlendi! Toplam ${storeInstance.state.students.length} öğrenci, ${storeInstance.state.exams.length} sınav mevcut.`, "success");
         }
 
         return hasChange;
       } catch (err) {
+        if (isManual) showToast("Firestore senkronizasyonunda hata: " + err.message, "error");
         return false;
       }
     }
@@ -3024,7 +3128,7 @@ const page1El = tempContainer.querySelector("#report-page-1") || tempContainer.q
 
       this.applyTheme(this.state.institution.temaRengi);
       if (this.state.firebaseConfig) {
-        FirebaseService.init(this.state.firebaseConfig);
+        FirebaseService.init(this.state.firebaseConfig, this);
       }
     }
 
@@ -4053,55 +4157,75 @@ const page1El = tempContainer.querySelector("#report-page-1") || tempContainer.q
     const fb = state.firebaseConfig || DEFAULT_FIREBASE_CONFIG;
     const activeDbName = fb.databaseId || "olcme-uygulama";
     const isConn = FirebaseService.isInitialized || !!fb.apiKey;
+    const hasQuotaError = FirebaseService.lastQuotaExceeded;
+
     return `
       <div class="view-container animate-fade-in">
         <div class="view-header">
           <div><h1 class="view-title">Firebase & Veritabanı Yapılandırması</h1><p class="view-subtitle">Firestore bulut veritabanı bağlantısı ve anlık canlı senkronizasyon.</p></div>
           <div class="view-actions">
-            <span class="badge badge-success" style="font-size: 13px; padding: 7px 14px; box-shadow: 0 2px 8px rgba(34, 197, 94, 0.2);">
-              🟢 Aktif Bağlı Veritabanı: <strong>${activeDbName}</strong> (Canlı Senkronize)
+            <span class="badge ${hasQuotaError ? 'badge-warning' : 'badge-success'}" style="font-size: 13px; padding: 7px 14px; box-shadow: 0 2px 8px rgba(34, 197, 94, 0.2);">
+              ${hasQuotaError ? '⚠️ Firestore Kotası Doldu (HTTP 429)' : `🟢 Aktif Bağlı: ${activeDbName} (Canlı Dinleme Aktif)`}
             </span>
           </div>
         </div>
+
+        ${hasQuotaError ? `
+          <div class="card p-3 mb-4" style="background: #fffbeb; border: 2px solid #fde68a; border-radius: var(--radius-lg);">
+            <div class="d-flex items-center gap-3">
+              <span style="font-size: 28px;">⚠️</span>
+              <div>
+                <strong style="color: #92400e; font-size: 14px;">Firebase Spark (Ücretsiz) Günlük Okuma Kotası (50.000 Okuma) Doldu!</strong>
+                <div style="font-size: 12.5px; color: #b45309; margin-top: 3px; line-height: 1.4;">
+                  Firestore günlük 50.000 okuma limitine ulaştı. <strong>Diğer bilgisayarlarınıza verilerinizi anında aktarmak için aşağıdaki "💾 Bilgisayara JSON Yedek İndir" butonunu kullanabilir ve diğer cihazda "📂 JSON Yedek Yükle" diyerek anında senkronize edebilirsiniz.</strong> Kota her gece sıfırlanır veya Firebase Konsolu'ndan "Blaze (Kullandıkça Öde)" planına geçerek sınırsız okuma sağlayabilirsiniz.
+                </div>
+              </div>
+            </div>
+          </div>
+        ` : ""}
 
         <div class="grid-2-col mb-4">
           <!-- BULUTA YÜKLEME VE EŞİTLEME PANELİ -->
           <div class="card p-4" style="background: #f0fdf4; border: 2px solid #86efac; border-radius: var(--radius-lg);">
             <div class="d-flex items-center gap-2 mb-2">
               <span style="font-size: 22px;">☁️</span>
-              <h3 class="font-bold text-success mb-0" style="font-size: 17px;">Tüm Verileri Buluta Yükle / Senkronize Et</h3>
+              <h3 class="font-bold text-success mb-0" style="font-size: 17px;">Firestore Bulut Senkronizasyonu</h3>
             </div>
             <p class="text-muted mb-3" style="font-size: 13px; line-height: 1.5;">
               Sistemdeki tüm kayıtlı öğrencileri (<strong>${state.students.length}</strong>), sınavları (<strong>${state.exams.length}</strong>) ve yapay zekâ raporlarını (<strong>${state.reports.length}</strong>) tek tıkla <strong>Firestore (${activeDbName})</strong> veritabanına aktarın veya buluttan geri çekin.
             </p>
             <div class="d-flex gap-2 flex-wrap">
-              <button type="button" class="btn btn-success btn-lg font-bold shadow-glow" onclick="window.app.uploadAllToFirebase()">
-                ☁️ Tüm Yerel Verileri Firestore'a Aktar (${activeDbName})
+              <button type="button" class="btn btn-success font-bold shadow-glow" onclick="window.app.uploadAllToFirebase()">
+                ☁️ Tüm Yerel Verileri Firestore'a Aktar
               </button>
               <button type="button" class="btn btn-outline text-success border-success font-bold" onclick="window.app.syncAllFromFirebase()">
-                📥 Firestore'dan Canlı Eşitle / İndir
+                📥 Firestore'dan Canlı İndir / Eşitle
               </button>
             </div>
           </div>
 
-          <!-- VERİTABANI BİLGİ KARTI -->
-          <div class="card p-4" style="background: #ffffff; border: 1px solid var(--border-color); border-radius: var(--radius-lg);">
+          <!-- CİHAZLAR ARASI HIZLI YEDEK TRANSFER PANELİ -->
+          <div class="card p-4" style="background: #f8fafc; border: 2px solid #cbd5e1; border-radius: var(--radius-lg);">
             <div class="d-flex items-center gap-2 mb-2">
-              <span style="font-size: 22px;">🗄️</span>
-              <h3 class="font-bold text-dark mb-0" style="font-size: 17px;">Firestore Koleksiyon Durumu</h3>
+              <span style="font-size: 22px;">💾</span>
+              <h3 class="font-bold text-dark mb-0" style="font-size: 17px;">Cihazlar Arası Hızlı JSON Yedek & Transfer</h3>
             </div>
-            <div class="p-2 mb-3" style="background: #f8fafc; border-radius: 6px; border: 1px solid #e2e8f0; font-size: 12.5px;">
-              Bağlı Veritabanı: <strong class="text-primary">${activeDbName}</strong> • Proje: <strong>${fb.projectId}</strong>
+            <p class="text-muted mb-3" style="font-size: 13px; line-height: 1.5;">
+              İnternet veya kota sınırına takılmadan tüm verilerinizi (öğrenciler, sınavlar, raporlar) tek bir JSON dosyası olarak indirip diğer bilgisayara anında aktarın.
+            </p>
+            <div class="d-flex gap-2 flex-wrap">
+              <button type="button" class="btn btn-primary font-bold shadow-glow" onclick="window.app.exportAllDataAsJSON()">
+                💾 Bilgisayara JSON Yedek İndir
+              </button>
+              <label class="btn btn-outline font-bold mb-0 cursor-pointer" style="display: inline-flex; align-items: center;">
+                📂 JSON Yedek Yükle
+                <input type="file" accept=".json" style="display: none;" onchange="window.app.importAllDataFromJSON(event)" />
+              </label>
             </div>
-            <ul style="list-style: none; padding-left: 0; font-size: 13px; line-height: 2; margin-bottom: 0;">
-              <li>📁 <strong>ogrenciler</strong>: ${state.students.length} Kayıtlı Öğrenci</li>
-              <li>📁 <strong>sinavlar</strong>: ${state.exams.length} İşlenmiş Sınav Karnesi</li>
-              <li>📁 <strong>raporlar</strong>: ${state.reports.length} Üretilen AI Etüt Karnesi</li>
-              <li>📁 <strong>kurumlar</strong>: Kurum & Logo Ayarları</li>
-            </ul>
           </div>
         </div>
 
+        <!-- VERİTABANI PARAMETRELERİ -->
         <div class="card">
           <div class="card-header"><h2 class="card-title">Firebase & Firestore Bağlantı Parametreleri</h2></div>
           <div class="card-body">
@@ -4148,6 +4272,7 @@ const page1El = tempContainer.querySelector("#report-page-1") || tempContainer.q
       this.expandedExamKeys = new Set();
       this.examSearchQuery = "";
       this.examSortOrder = "yeniden-eskiye";
+      this._lastFocusSync = 0;
       this.activeAnalysis = {
         status: "idle", // "idle" | "running" | "completed"
         type: "single", // "single" | "batch"
@@ -4166,22 +4291,170 @@ const page1El = tempContainer.querySelector("#report-page-1") || tempContainer.q
       this.renderCurrentView();
       this.updateSidebarActiveState();
 
-      // OTOMATİK BULUT SENKRONİZASYONU (Farklı PC / Cihazlar için)
+      // OTOMATİK BULUT SENKRONİZASYONU (Uygulama açılışında tek seferlik veri çekme)
       FirebaseService.syncAllFromFirestore(store).then((synced) => {
         if (synced) this.renderCurrentView();
       });
 
-      // Arka planda 15 saniyede bir diğer cihazlardaki yeni verileri sessizce çek
-      setInterval(() => {
-        const isModalOpen = !!document.querySelector(".modal-backdrop");
-        if (!isModalOpen && !this.isBatchProcessing && !this.isPdfParsing && !this.isSingleAiParsing) {
+      // Akıllı Sekme Odaklanma Senkronizasyonu (Kullanıcı başka sekmeden dönünce 5 dakikada en fazla 1 kez)
+      window.addEventListener("focus", () => {
+        const now = Date.now();
+        if (!this._lastFocusSync || (now - this._lastFocusSync > 300000)) {
+          this._lastFocusSync = now;
           FirebaseService.syncAllFromFirestore(store).then((synced) => {
             if (synced && !["aiConfig", "firebaseConfig", "settings"].includes(store.getState().currentTab)) {
               this.renderCurrentView();
             }
           });
         }
-      }, 15000);
+      });
+    }
+
+    async uploadAllToFirebase() {
+      const state = store.getState();
+      const fb = state.firebaseConfig || DEFAULT_FIREBASE_CONFIG;
+      const targetDb = fb.databaseId || "olcme-uygulama";
+
+      const totalItems = state.students.length + state.exams.length + state.reports.length;
+      if (totalItems === 0 && (!state.institution || !state.institution.ad)) {
+        showToast("Yüklenecek öğrenci veya sınav verisi bulunamadı.", "info");
+        return;
+      }
+
+      showToast(`☁️ ${state.students.length} öğrenci, ${state.exams.length} sınav ve ${state.reports.length} rapor Firestore (${targetDb}) veritabanına aktarılıyor...`, "info", 5000);
+
+      let successCount = 0;
+      let failCount = 0;
+
+      // 1. Kurum bilgisi
+      try {
+        await FirebaseService.saveDocument("kurumlar", state.institution.id || "kurum_default", state.institution);
+        successCount++;
+      } catch (e) { failCount++; }
+
+      // 2. Öğrenciler (paralel 5'erli gruplar halinde)
+      for (let i = 0; i < state.students.length; i += 5) {
+        const chunk = state.students.slice(i, i + 5);
+        await Promise.all(chunk.map(async (st) => {
+          try {
+            await FirebaseService.saveDocument("ogrenciler", st.id, st);
+            successCount++;
+          } catch (e) { failCount++; }
+        }));
+      }
+
+      // 3. Sınavlar
+      for (let i = 0; i < state.exams.length; i += 5) {
+        const chunk = state.exams.slice(i, i + 5);
+        await Promise.all(chunk.map(async (ex) => {
+          try {
+            await FirebaseService.saveDocument("sinavlar", ex.id, ex);
+            successCount++;
+          } catch (e) { failCount++; }
+        }));
+      }
+
+      // 4. Raporlar
+      for (let i = 0; i < state.reports.length; i += 5) {
+        const chunk = state.reports.slice(i, i + 5);
+        await Promise.all(chunk.map(async (rep) => {
+          try {
+            await FirebaseService.saveDocument("raporlar", rep.id, rep);
+            successCount++;
+          } catch (e) { failCount++; }
+        }));
+      }
+
+      if (failCount === 0) {
+        showToast(`🎉 Tebrikler! Tüm veriler (${successCount} kayıt) Firestore (${targetDb}) veritabanına başarıyla aktarıldı. Diğer cihazlarda anında görünecektir.`, "success", 5000);
+      } else {
+        showToast(`⚠️ Aktarım tamamlandı: ${successCount} başarılı, ${failCount} hatalı kayıt.`, "warning", 5000);
+      }
+    }
+
+    async syncAllFromFirebase() {
+      showToast("Firestore bulut veritabanından veriler çekiliyor...", "info");
+      const hasChange = await FirebaseService.syncAllFromFirestore(store, true);
+      this.renderCurrentView();
+    }
+
+    exportAllDataAsJSON() {
+      const state = store.getState();
+      const exportData = {
+        app: "Sınav Analiz ve AI Raporlama Sistemi",
+        version: "2.0",
+        exportDate: new Date().toISOString(),
+        institution: state.institution,
+        students: state.students,
+        exams: state.exams,
+        reports: state.reports,
+        aiConfig: state.aiConfig
+      };
+
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
+      const downloadAnchor = document.createElement("a");
+      const dateStr = new Date().toISOString().split("T")[0];
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", `sinav_analiz_tam_yedek_${dateStr}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+
+      showToast(`💾 Tüm veriler (Öğrenciler: ${state.students.length}, Sınavlar: ${state.exams.length}) JSON dosyası olarak indirildi. Diğer bilgisayarda 'JSON Yükle' butonuyla anında açabilirsiniz!`, "success", 6000);
+    }
+
+    importAllDataFromJSON(event) {
+      const file = event.target?.files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const imported = JSON.parse(e.target.result);
+          if (!imported || (!imported.students && !imported.exams)) {
+            showToast("Geçersiz JSON yedek dosyası formatı.", "error");
+            return;
+          }
+
+          let addedStudents = 0;
+          let addedExams = 0;
+          let addedReports = 0;
+
+          if (Array.isArray(imported.students) && imported.students.length > 0) {
+            store.state.students = imported.students;
+            store.saveToStorage(APP_CONFIG.storageKeys.STUDENTS, imported.students);
+            addedStudents = imported.students.length;
+          }
+
+          if (Array.isArray(imported.exams) && imported.exams.length > 0) {
+            store.state.exams = imported.exams;
+            store.saveToStorage(APP_CONFIG.storageKeys.EXAMS, imported.exams);
+            addedExams = imported.exams.length;
+          }
+
+          if (Array.isArray(imported.reports) && imported.reports.length > 0) {
+            store.state.reports = imported.reports;
+            store.saveToStorage(APP_CONFIG.storageKeys.REPORTS, imported.reports);
+            addedReports = imported.reports.length;
+          }
+
+          if (imported.institution && imported.institution.ad) {
+            store.state.institution = { ...store.state.institution, ...imported.institution };
+            store.saveToStorage(APP_CONFIG.storageKeys.INSTITUTION, store.state.institution);
+          }
+
+          this.renderCurrentView();
+          showToast(`✅ Yedek başarıyla yüklendi: ${addedStudents} öğrenci, ${addedExams} sınav ve ${addedReports} rapor sisteme aktarıldı!`, "success", 5000);
+
+          if (FirebaseService.isInitialized) {
+            this.uploadAllToFirebase();
+          }
+        } catch (err) {
+          showToast("JSON dosyası okunurken hata oluştu: " + err.message, "error");
+        }
+      };
+      reader.readAsText(file);
+      event.target.value = "";
     }
 
     updateAnalysisProgress(info) {

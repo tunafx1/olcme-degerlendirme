@@ -3684,6 +3684,15 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     const branchFilter = window.app?.studentBranchFilter || "all";
     const searchQuery = window.app?.studentSearchQuery || "";
     
+    // Apply filters before rendering the rows
+    const filteredStudents = state.students.filter((s) => {
+      const matchGrade = gradeFilter === "all" || s.sinif === gradeFilter;
+      const matchBranch = branchFilter === "all" || s.sube === branchFilter;
+      const q = searchQuery.toLowerCase().trim();
+      const matchQuery = !q || s.adSoyad.toLowerCase().includes(q) || (s.numara && String(s.numara).includes(q));
+      return matchGrade && matchBranch && matchQuery;
+    });
+
     // Sınıf filtrelerini dinamik oluştur
     const uniqueClasses = [...new Set(state.students.map((s) => s.sinif).filter(Boolean))].sort((a, b) => Number(a) - Number(b));
     let classButtons = `<button class="filter-btn ${gradeFilter === 'all' ? 'active' : ''}" data-class="all" onclick="window.app.filterStudentsByClass('all')">Tüm Sınıflar</button>`;
@@ -3736,9 +3745,9 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         <div class="card">
           <div class="card-body p-0">
             <div class="table-responsive">
-              <table class="data-table">
+              <table class="data-table responsive-card-table">
                 <thead><tr><th>Öğrenci Bilgisi</th><th>Sınıf / Şube</th><th>Numara</th><th>Kayıtlı Sınav</th><th>Veli Bilgisi</th><th style="text-align: right;">İşlemler</th></tr></thead>
-                <tbody id="students-tbody">${renderStudentRows(state.students, state.exams)}</tbody>
+                <tbody id="students-tbody">${renderStudentRows(filteredStudents, state.exams)}</tbody>
               </table>
             </div>
           </div>
@@ -3765,15 +3774,15 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
 
       return `
         <tr class="student-row" data-id="${s.id || ''}">
-          <td>
+          <td data-label="Öğrenci Bilgisi">
             <div class="user-avatar-group">
               <div class="user-avatar-initials">${initials}</div>
               <div><div class="font-bold text-dark cursor-pointer" onclick="window.app.openStudentProfile('${s.id}')">${escapeHtml(name)}</div><div style="font-size: 12px; color: var(--text-muted);">${formatDate(s.olusturmaTarihi)}</div></div>
             </div>
           </td>
-          <td><span class="badge badge-secondary">${sinifStr}. Sınıf / ${subeStr}</span></td>
-          <td><strong>#${s.numara || "-"}</strong></td>
-          <td>
+          <td data-label="Sınıf / Şube"><span class="badge badge-secondary">${sinifStr}. Sınıf / ${subeStr}</span></td>
+          <td data-label="Numara"><strong>#${s.numara || "-"}</strong></td>
+          <td data-label="Kayıtlı Sınav">
             <div class="d-flex flex-column gap-1" style="align-items: flex-start;">
               <span class="badge ${studentExams.length > 0 ? "badge-primary" : "badge-light"} cursor-pointer" onclick="window.app.openStudentProfile('${s.id}')" title="Sınav geçmişini ve profili görüntüle" style="cursor: pointer;">
                 📋 ${studentExams.length} Sınav
@@ -3789,8 +3798,8 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
               `}
             </div>
           </td>
-          <td><div>${escapeHtml(s.veliAdSoyad || "-")}</div><div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(s.veliTelefon || "-")}</div></td>
-          <td style="text-align: right;">
+          <td data-label="Veli Bilgisi"><div>${escapeHtml(s.veliAdSoyad || "-")}</div><div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(s.veliTelefon || "-")}</div></td>
+          <td data-label="İşlemler" style="text-align: right;">
             <div class="btn-group">
               <button class="btn btn-sm btn-outline" onclick="window.app.openStudentProfile('${s.id}')">Profil</button>
               <button class="btn btn-sm btn-ghost" onclick="window.app.openStudentModal('${s.id}')">Düzenle</button>

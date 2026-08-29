@@ -398,9 +398,10 @@ html, body {
   }
   .view-actions .btn {
     width: 100%;
-    font-size: 12px;
-    padding: 10px 14px;
+    font-size: 13px;
+    padding: 12px 14px;
     justify-content: center;
+    min-height: 44px;
   }
 
   /* Tablo hücreleri: daha az padding */
@@ -451,6 +452,70 @@ html, body {
     padding: 8px 10px;
     font-size: 12px;
     justify-content: center;
+  }
+
+  /* Öğrenci Yönetimi - Mobil Kart Görünümü */
+  .responsive-card-table thead {
+    display: none;
+  }
+  .responsive-card-table, 
+  .responsive-card-table tbody, 
+  .responsive-card-table tr, 
+  .responsive-card-table td {
+    display: block;
+    width: 100%;
+  }
+  .responsive-card-table tr {
+    margin-bottom: 16px;
+    border: 1px solid #e2e8f0;
+    border-radius: var(--radius-lg);
+    background: #ffffff;
+    padding: 14px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+  }
+  .responsive-card-table td {
+    border: none;
+    padding: 8px 0;
+    text-align: left !important;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .responsive-card-table td::before {
+    content: attr(data-label);
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #64748b;
+    margin-right: 12px;
+    flex-shrink: 0;
+  }
+  .responsive-card-table .student-row td:first-child {
+    margin-bottom: 8px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .responsive-card-table .student-row td:first-child::before {
+    display: none;
+  }
+  .responsive-card-table .student-row td:last-child {
+    margin-top: 8px;
+    padding-top: 14px;
+    border-top: 1px dashed #e2e8f0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .responsive-card-table .student-row td:last-child::before {
+    display: none;
+  }
+  .responsive-card-table .student-row td:last-child .btn-group {
+    flex-direction: row;
+    width: 100%;
+    gap: 8px;
+  }
+  .responsive-card-table .student-row td:last-child .btn-group .btn {
+    flex: 1;
+    padding: 8px 0;
   }
 
   /* Avatarlar: daha küçük */

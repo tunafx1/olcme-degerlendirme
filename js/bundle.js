@@ -3474,9 +3474,30 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
 
     return `
         ${(() => {
-          const isAnalyzing = window.app?.activeAnalysis?.status === "running";
-          const analysis = window.app?.activeAnalysis || { percent: 0, title: "Yapay Zekâ Analizi", currentStudent: "" };
-          const elapsedTime = window.app?.analysisElapsedTime || "00:00";
+          const isAiRunning = window.app?.activeAnalysis?.status === "running";
+          const st = window.app?.pdfAnalyzerLiveState || {};
+          const isPdfParsing = (window.app?.isPdfParsing || window.app?.isSingleAiParsing) && !st.isCompleted;
+          const isAnalyzing = isAiRunning || isPdfParsing;
+          
+          let title = "Canlı İşlem";
+          let percent = 0;
+          let subtitle = "";
+          let timeText = "00:00";
+          let statusText = "Canlı İşlem Devam Ediyor";
+          
+          if (isAiRunning) {
+            const analysis = window.app?.activeAnalysis || { percent: 0, title: "Yapay Zekâ Analizi", currentStudent: "" };
+            title = analysis.title || "Yapay Zekâ Analizi";
+            percent = analysis.percent || 0;
+            subtitle = "👤 " + (analysis.currentStudent || "Öğrenci Analiz Ediliyor");
+            timeText = "⏱️ Geçen Süre: " + (window.app?.analysisElapsedTime || "00:00");
+          } else if (isPdfParsing) {
+            title = "⚡ PDF Analiz Ediliyor";
+            percent = st.percent || 0;
+            subtitle = `👤 ${st.curr || 0} / ${st.total || 0} Öğrenci İşlendi (${st.studentName || "Öğrenci"})`;
+            timeText = "⏳ Kalan: " + (st.remainingFormatted || (st.remainingSec ? "~" + st.remainingSec + " sn" : "Hesaplanıyor..."));
+            statusText = "PDF Ayrıştırma İşlemi";
+          }
           
           if (isAnalyzing) {
             return `
@@ -3485,22 +3506,22 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             <div class="d-flex justify-between items-center mb-4">
               <div class="dashboard-hero-badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid #38bdf8; margin-bottom: 0;">
                 <span class="ai-pulse-dot" style="background: #38bdf8; box-shadow: 0 0 12px #38bdf8;"></span>
-                <span>Canlı İşlem Devam Ediyor</span>
+                <span id="hero-analysis-status-text">${statusText}</span>
               </div>
               <div style="font-size: 15px; font-weight: 600; color: #fff; background: rgba(255,255,255,0.1); padding: 6px 14px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1);">
-                ⏱️ Geçen Süre: <span id="hero-analysis-timer">${elapsedTime}</span>
+                <span id="hero-analysis-timer">${timeText}</span>
               </div>
             </div>
             
-            <h1 class="dashboard-hero-title" id="hero-analysis-title" style="margin-bottom: 8px; font-size: 24px;">${analysis.title}</h1>
-            <p class="dashboard-hero-desc text-truncate" id="hero-analysis-student" style="font-size: 15px; color: #cbd5e1; max-width: 100%; opacity: 0.9;">👤 ${analysis.currentStudent || "Öğrenci Analiz Ediliyor"}</p>
+            <h1 class="dashboard-hero-title" id="hero-analysis-title" style="margin-bottom: 8px; font-size: 24px;">${title}</h1>
+            <p class="dashboard-hero-desc text-truncate" id="hero-analysis-student" style="font-size: 15px; color: #cbd5e1; max-width: 100%; opacity: 0.9;">${subtitle}</p>
             
             <div class="analysis-progress-track" style="margin: 20px 0; height: 10px; border-radius: 10px; background: rgba(255,255,255,0.1); overflow: hidden;">
-              <div class="analysis-progress-fill" id="hero-analysis-fill-bar" style="width: ${analysis.percent}%; height: 100%; border-radius: 10px; background: linear-gradient(90deg, #38bdf8, #2563eb); transition: width 0.3s ease;"></div>
+              <div class="analysis-progress-fill" id="hero-analysis-fill-bar" style="width: ${percent}%; height: 100%; border-radius: 10px; background: linear-gradient(90deg, #38bdf8, #2563eb); transition: width 0.3s ease;"></div>
             </div>
             
             <div class="d-flex justify-between items-center" style="color: #94a3b8;">
-              <span style="font-size: 14px;">Tamamlanma Oranı: <strong class="text-white" id="hero-analysis-percent-badge">%${analysis.percent}</strong></span>
+              <span style="font-size: 14px;">Tamamlanma Oranı: <strong class="text-white" id="hero-analysis-percent-badge">%${percent}</strong></span>
             </div>
           </div>
         </div>
@@ -4553,27 +4574,55 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     updateDashboardProgressDOM() {
       if (store.getState().currentTab !== "dashboard") return;
       const widget = document.getElementById("dashboard-hero-progress-widget");
+      
+      const isAiRunning = this.activeAnalysis?.status === "running";
+      const st = this.pdfAnalyzerLiveState || {};
+      const isPdfParsing = (this.isPdfParsing || this.isSingleAiParsing) && !st.isCompleted;
+      const isAnalyzing = isAiRunning || isPdfParsing;
+      
       if (!widget) {
-        if (this.activeAnalysis.status === "running") {
+        if (isAnalyzing) {
           this.renderCurrentView();
         }
         return;
       }
-      if (this.activeAnalysis.status !== "running") {
+      if (!isAnalyzing) {
         this.renderCurrentView();
         return;
       }
+      
       const titleEl = document.getElementById("hero-analysis-title");
       const percentBadge = document.getElementById("hero-analysis-percent-badge");
       const fillBar = document.getElementById("hero-analysis-fill-bar");
       const studentEl = document.getElementById("hero-analysis-student");
       const timerEl = document.getElementById("hero-analysis-timer");
+      const statusTextEl = document.getElementById("hero-analysis-status-text");
 
-      if (titleEl) titleEl.innerText = this.activeAnalysis.title;
-      if (percentBadge) percentBadge.innerText = `%${this.activeAnalysis.percent}`;
-      if (fillBar) fillBar.style.width = `${this.activeAnalysis.percent}%`;
-      if (studentEl) studentEl.innerText = `👤 ${this.activeAnalysis.currentStudent || "Öğrenci Analiz Ediliyor"}`;
-      if (timerEl) timerEl.innerText = this.analysisElapsedTime || "00:00";
+      let title = "Canlı İşlem";
+      let percent = 0;
+      let subtitle = "";
+      let timeText = "00:00";
+      let statusText = "Canlı İşlem Devam Ediyor";
+
+      if (isAiRunning) {
+        title = this.activeAnalysis.title || "Yapay Zekâ Analizi";
+        percent = this.activeAnalysis.percent || 0;
+        subtitle = "👤 " + (this.activeAnalysis.currentStudent || "Öğrenci Analiz Ediliyor");
+        timeText = "⏱️ Geçen Süre: " + (this.analysisElapsedTime || "00:00");
+      } else if (isPdfParsing) {
+        title = "⚡ PDF Analiz Ediliyor";
+        percent = st.percent || 0;
+        subtitle = `👤 ${st.curr || 0} / ${st.total || 0} Öğrenci İşlendi (${st.studentName || "Öğrenci"})`;
+        timeText = "⏳ Kalan: " + (st.remainingFormatted || (st.remainingSec ? "~" + st.remainingSec + " sn" : "Hesaplanıyor..."));
+        statusText = "PDF Ayrıştırma İşlemi";
+      }
+
+      if (titleEl) titleEl.innerText = title;
+      if (percentBadge) percentBadge.innerText = `%${percent}`;
+      if (fillBar) fillBar.style.width = `${percent}%`;
+      if (studentEl) studentEl.innerText = subtitle;
+      if (timerEl) timerEl.innerText = timeText;
+      if (statusTextEl) statusTextEl.innerText = statusText;
     }
 
     openActiveAnalysisWindow() {
@@ -4832,6 +4881,8 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           <span style="max-width: 140px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">👤 ${escapeHtml(studentName)}</span>
         </div>
       `;
+      
+      this.updateDashboardProgressDOM();
     }
 
     openUploadPdfModal() {

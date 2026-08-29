@@ -3498,7 +3498,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             title = "⚡ PDF Analiz Ediliyor";
             percent = st.percent || 0;
             subtitle = `👤 ${st.curr || 0} / ${st.total || 0} Öğrenci İşlendi (${st.studentName || "Öğrenci"})`;
-            timeText = "⏳ Kalan: " + (st.remainingFormatted || (st.remainingSec ? "~" + st.remainingSec + " sn" : "Hesaplanıyor..."));
+            timeText = "⏱️ Süre: " + (window.app?.pdfParsingElapsedTime || "00:00") + " • ⏳ Kalan: " + (st.remainingFormatted || (st.remainingSec ? "~" + st.remainingSec + " sn" : "Hesaplanıyor..."));
             statusText = "PDF Ayrıştırma İşlemi";
           } else if (isPdfParsingCompleted) {
              title = "🎉 PDF Ayrıştırma Tamamlandı";
@@ -4638,7 +4638,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         title = "⚡ PDF Analiz Ediliyor";
         percent = st.percent || 0;
         subtitle = `👤 ${st.curr || 0} / ${st.total || 0} Öğrenci İşlendi (${st.studentName || "Öğrenci"})`;
-        timeText = "⏳ Kalan: " + (st.remainingFormatted || (st.remainingSec ? "~" + st.remainingSec + " sn" : "Hesaplanıyor..."));
+        timeText = "⏱️ Süre: " + (this.pdfParsingElapsedTime || "00:00") + " • ⏳ Kalan: " + (st.remainingFormatted || (st.remainingSec ? "~" + st.remainingSec + " sn" : "Hesaplanıyor..."));
         statusText = "PDF Ayrıştırma İşlemi";
       } else if (isPdfParsingCompleted) {
          title = "🎉 PDF Ayrıştırma Tamamlandı";
@@ -4779,6 +4779,12 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       this.isPdfModalMinimized = false;
       this.parsedStudentsList = null;
       this.pdfAnalyzerLiveState = { isCompleted: false };
+      
+      if (this.pdfParsingTimerInterval) {
+        clearInterval(this.pdfParsingTimerInterval);
+        this.pdfParsingTimerInterval = null;
+      }
+      this.pdfParsingElapsedTime = "00:00";
       
       // Varsa açık olan modalı kapat
       this.closeModal("pdf-upload-modal");
@@ -5159,6 +5165,17 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
 
       this.isPdfParsing = true;
       this.pdfParsingAbortController = new AbortController();
+      
+      this.pdfParsingStartTime = Date.now();
+      this.pdfParsingElapsedTime = "00:00";
+      if (this.pdfParsingTimerInterval) clearInterval(this.pdfParsingTimerInterval);
+      this.pdfParsingTimerInterval = setInterval(() => {
+        const diff = Math.floor((Date.now() - this.pdfParsingStartTime) / 1000);
+        const mins = String(Math.floor(diff / 60)).padStart(2, "0");
+        const secs = String(diff % 60).padStart(2, "0");
+        this.pdfParsingElapsedTime = `${mins}:${secs}`;
+        this.updateDashboardProgressDOM();
+      }, 1000);
 
       const useAi = document.getElementById("pdf-ai-toggle") ? document.getElementById("pdf-ai-toggle").checked : true;
       const aiConfig = store.getState().aiConfig;
@@ -5212,6 +5229,11 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
 
         this.parsedStudentsList = students;
         this.isPdfParsing = false;
+        
+        if (this.pdfParsingTimerInterval) {
+          clearInterval(this.pdfParsingTimerInterval);
+          this.pdfParsingTimerInterval = null;
+        }
 
         this.updateFloatingPdfAnalyzerWidget({
           curr: students.length,
@@ -5238,6 +5260,12 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         }
       } catch (err) {
         this.isPdfParsing = false;
+        
+        if (this.pdfParsingTimerInterval) {
+          clearInterval(this.pdfParsingTimerInterval);
+          this.pdfParsingTimerInterval = null;
+        }
+        
         this.updateFloatingPdfAnalyzerWidget();
         if (loader) loader.style.display = "none";
         if (dropZone) dropZone.style.display = "block";

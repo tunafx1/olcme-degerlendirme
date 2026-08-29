@@ -4907,6 +4907,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation(); this.closest('#floating-pdf-analyzer-widget').remove()" title="Kapat">&times;</button>
           </div>
         `;
+        this.updateDashboardProgressDOM();
         return;
       }
 

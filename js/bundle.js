@@ -3473,6 +3473,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     const uniqueExams = Array.from(uniqueExamMap.entries()).map(([sinavAdi, count]) => ({ sinavAdi, count }));
 
     return `
+      <div class="view-container animate-fade-in">
         ${(() => {
           const isAiRunning = window.app?.activeAnalysis?.status === "running";
           const st = window.app?.pdfAnalyzerLiveState || {};

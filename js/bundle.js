@@ -3534,9 +3534,12 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
               <span style="font-size: 14px;">Tamamlanma Oranı: <strong class="text-white" id="hero-analysis-percent-badge">%${percent}</strong></span>
             </div>
             ${isPdfParsingCompleted ? `
-            <div style="margin-top: 20px;">
-              <button class="btn btn-success btn-lg shadow-glow" onclick="window.app.maximizePdfModal()" style="width: 100%; border-radius: 12px; font-weight: 600;">
+            <div style="margin-top: 20px; display: flex; gap: 10px;">
+              <button class="btn btn-success btn-lg shadow-glow" onclick="window.app.maximizePdfModal()" style="flex: 1; border-radius: 12px; font-weight: 600;">
                 🚀 Önizlemeyi Aç ve AI Analizini Başlat
+              </button>
+              <button class="btn btn-outline" onclick="window.app.cancelPdfParsing()" style="border-radius: 12px; font-weight: 600; padding: 0 20px; color: #ef4444; border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.05);" title="İşlemi İptal Et ve Sil">
+                Sil / İptal Et
               </button>
             </div>
             ` : ""}
@@ -4768,6 +4771,25 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       }
       this.isPdfModalMinimized = false;
       this.updateFloatingPdfAnalyzerWidget();
+    }
+
+    cancelPdfParsing() {
+      // PDF ayrıştırma verilerini sıfırla
+      this.isPdfParsing = false;
+      this.isPdfModalMinimized = false;
+      this.parsedStudentsList = null;
+      this.pdfAnalyzerLiveState = { isCompleted: false };
+      
+      // Varsa açık olan modalı kapat
+      this.closeModal("pdf-upload-modal");
+      
+      // Floating widget'ı sil
+      const widget = document.getElementById("floating-pdf-analyzer-widget");
+      if (widget) widget.remove();
+      
+      // Dashboard'u eski "PDF Yükle" haline geri döndür
+      this.renderCurrentView();
+      showToast("İşlem iptal edildi ve silindi. Yeni bir PDF yükleyebilirsiniz.", "info");
     }
 
     openSingleAiAnalysisModal(student, chosenExams) {

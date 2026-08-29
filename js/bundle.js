@@ -4383,6 +4383,8 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         totalSteps: 0,
         message: ""
       };
+      this.pdfAnalyzerLiveState = { isCompleted: false };
+      this._lastRenderedTab = null;
       this.init();
     }
 
@@ -4691,7 +4693,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     }
 
     handleStateUpdate(state, event, data) {
-      // FIRESTORE_SYNCED event'i gelince UI'ı yenile (polling veya visibility senkronizasyonu)
+      // Sadece sekme değiştiyse renderCurrentView() içinde isTabChanged = true olarak işaretlenecek
       this.renderCurrentView();
       this.updateSidebarActiveState();
       this.updateNavbarAiStatus();
@@ -4706,6 +4708,9 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const state = store.getState();
       const contentArea = document.getElementById("main-content-area");
       if (!contentArea) return;
+      
+      const isTabChanged = this._lastRenderedTab !== state.currentTab;
+      this._lastRenderedTab = state.currentTab;
 
       let html = "";
       switch (state.currentTab) {
@@ -4720,6 +4725,13 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         default: html = renderDashboardView();
       }
       contentArea.innerHTML = html;
+      
+      if (!isTabChanged) {
+        const viewContainer = contentArea.querySelector(".view-container");
+        if (viewContainer) viewContainer.classList.remove("animate-fade-in");
+        const bulkCard = contentArea.querySelector(".dashboard-bulk-export-card");
+        if (bulkCard) bulkCard.classList.remove("animate-fade-in");
+      }
     }
 
     updateSidebarActiveState() {
@@ -4777,7 +4789,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       // PDF ayrıştırma verilerini sıfırla
       this.isPdfParsing = false;
       this.isPdfModalMinimized = false;
-      this.parsedStudentsList = null;
+      this.parsedStudentsList = [];
       this.pdfAnalyzerLiveState = { isCompleted: false };
       
       if (this.pdfParsingTimerInterval) {

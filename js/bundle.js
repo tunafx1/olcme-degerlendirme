@@ -3746,7 +3746,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           <div class="card-body p-0">
             <div class="table-responsive">
               <table class="data-table responsive-card-table">
-                <thead><tr><th>Öğrenci Bilgisi</th><th>Sınıf / Şube</th><th>Numara</th><th>Kayıtlı Sınav</th><th>Veli Bilgisi</th><th style="text-align: right;">İşlemler</th></tr></thead>
+                <thead><tr><th>Öğrenci Bilgisi</th><th>Sınıf / Şube</th><th>Numara</th><th>Kayıtlı Sınav</th><th style="text-align: right;">İşlemler</th></tr></thead>
                 <tbody id="students-tbody">${renderStudentRows(filteredStudents, state.exams)}</tbody>
               </table>
             </div>
@@ -3771,14 +3771,6 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const sinifStr = s.sinif || "8";
       const subeStr = s.sube || "8/A";
       const studentReports = reports.filter((r) => r && (r.ogrenciId === s.id || (r.ogrenciAdSoyad && r.ogrenciAdSoyad.toLowerCase() === name.toLowerCase())));
-
-      const veliAd = s.veliAdSoyad ? s.veliAdSoyad.trim() : "";
-      const veliTel = s.veliTelefon ? s.veliTelefon.trim() : "";
-      let veliHtml = "";
-      if (veliAd && veliTel) veliHtml = `<div>${escapeHtml(veliAd)} &middot; <span style="font-size: 11px; color: var(--text-muted);">${escapeHtml(veliTel)}</span></div>`;
-      else if (veliAd) veliHtml = `<div>${escapeHtml(veliAd)}</div>`;
-      else if (veliTel) veliHtml = `<div>${escapeHtml(veliTel)}</div>`;
-      else veliHtml = `<div style="color: var(--text-muted); font-size: 11px; font-style: italic;">Veli bilgisi eklenmedi</div>`;
 
       return `
         <tr class="student-row" data-id="${s.id || ''}">
@@ -3806,7 +3798,6 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
               `}
             </div>
           </td>
-          <td data-label="Veli Bilgisi">${veliHtml}</td>
           <td data-label="İşlemler" style="text-align: right;">
             <div class="btn-group">
               <button class="btn btn-sm btn-outline" onclick="window.app.openStudentProfile('${s.id}')">Profil</button>

@@ -3498,7 +3498,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             title = "⚡ PDF Analiz Ediliyor";
             percent = st.percent || 0;
             subtitle = `👤 ${st.curr || 0} / ${st.total || 0} Öğrenci İşlendi (${st.studentName || "Öğrenci"})`;
-            timeText = "⏱️ Süre: " + (window.app?.pdfParsingElapsedTime || "00:00") + " • ⏳ Kalan: " + (st.remainingFormatted || (st.remainingSec ? "~" + st.remainingSec + " sn" : "Hesaplanıyor..."));
+            timeText = "⏱️ Geçen Süre: " + (window.app?.pdfParsingElapsedTime || "00:00");
             statusText = "PDF Ayrıştırma İşlemi";
           } else if (isPdfParsingCompleted) {
              title = "🎉 PDF Ayrıştırma Tamamlandı";
@@ -4638,7 +4638,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         title = "⚡ PDF Analiz Ediliyor";
         percent = st.percent || 0;
         subtitle = `👤 ${st.curr || 0} / ${st.total || 0} Öğrenci İşlendi (${st.studentName || "Öğrenci"})`;
-        timeText = "⏱️ Süre: " + (this.pdfParsingElapsedTime || "00:00") + " • ⏳ Kalan: " + (st.remainingFormatted || (st.remainingSec ? "~" + st.remainingSec + " sn" : "Hesaplanıyor..."));
+        timeText = "⏱️ Geçen Süre: " + (this.pdfParsingElapsedTime || "00:00");
         statusText = "PDF Ayrıştırma İşlemi";
       } else if (isPdfParsingCompleted) {
          title = "🎉 PDF Ayrıştırma Tamamlandı";

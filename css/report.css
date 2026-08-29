@@ -267,6 +267,9 @@
   border: 1px solid #e2e8f0;
   border-radius: var(--radius-sm);
   padding: 6px 8px;
+  /* Sayfalar arasında bölünmeyi engelle */
+  break-inside: avoid;
+  page-break-inside: avoid;
 }
 
 .report-dense-subject-card ul {
@@ -286,6 +289,9 @@
   border: 1px solid #e2e8f0;
   border-radius: var(--radius-sm);
   padding: 6px 10px;
+  /* Sayfalar arasında bölünmeyi engelle */
+  break-inside: avoid;
+  page-break-inside: avoid;
 }
 
 .report-deficiency-header {
@@ -377,7 +383,7 @@
   margin-top: 4px;
   background: #ffffff;
   border-radius: var(--radius-sm);
-  overflow: hidden;
+  /* overflow:hidden kaldırıldı — sayfa kesimi bölünmesini engelliyordu */
   border: 1px solid #e2e8f0;
 }
 
@@ -394,6 +400,17 @@
   padding: 4px 6px;
   border-bottom: 1px solid #e2e8f0;
   vertical-align: top;
+}
+
+/* Tablo satırları bölünmesin */
+.report-schedule-matrix tr {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.report-table tr {
+  break-inside: avoid;
+  page-break-inside: avoid;
 }
 
 .report-schedule-matrix tr:nth-child(even) {
@@ -647,7 +664,10 @@
 .recurring-card {
   transition: all 0.2s ease;
   position: relative;
-  overflow: hidden;
+  /* overflow:hidden kaldırıldı — sayfa kesimi bölünmesini engelliyordu */
+  /* Sayfalar arasında bölünmeyi engelle */
+  break-inside: avoid;
+  page-break-inside: avoid;
 }
 
 .recurring-card::before {
@@ -669,3 +689,35 @@
   white-space: nowrap;
 }
 
+/* =====================================================
+   SAYFA KESİMİ KONTROLÜ — Bölünmeyi engellenen bloklar
+   ===================================================== */
+.report-section {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.report-exam-card {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.report-student-card {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.report-comparison-kpis {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.schedule-stat-box {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.schedule-etut-box {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}

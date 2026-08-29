@@ -2321,74 +2321,185 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       }
     }
 
+    /**
+     * DOM-ölçümlü dinamik PDF sayfalaması.
+     *
+     * Mevcut sab  it "2 sayfa" varsayımının yerine:
+     *  1. rapor HTML'ini offscreen bir kapsayıcıya render et
+     *  2. her üst-seviye blok elemanlarının gerçek yüksekliklerini ölç
+     *  3. A4 sayfasının kullanılabilir yüksekliğini aşan noktalarda yeni sayfa başlat
+     *  4. Her sayfa dilimine ait bir wrapper HTMLElement döndür
+     *
+     * @param {HTMLElement} containerEl - Offscreen render edilmiş rapor kapsayıcısı
+     * @param {number} maxPageHeightPx  - Bir A4 sayfasının piksel yüksekliği (794px genişlik üzerinden)
+     * @returns {HTMLElement[]}         - Her biri bir PDF sayfasına karşılık gelen wrapper'lar
+     */
+    static paginateContent(containerEl, maxPageHeightPx = 1090) {
+      // ------------------------------------------------------------------
+      // 1. Bir sayfalık wrapper oluştur
+      // ------------------------------------------------------------------
+      const makePageWrapper = () => {
+        const w = document.createElement("div");
+        w.style.width = "794px";
+        w.style.minHeight = `${maxPageHeightPx}px`;
+        w.style.maxHeight = `${maxPageHeightPx}px`;
+        w.style.background = "#ffffff";
+        w.style.overflow = "hidden";  // sadece wrapper için clip; içerisindeki kartlara dokunmaz
+        w.style.position = "relative";
+        w.style.boxSizing = "border-box";
+        w.style.padding = "0";
+        return w;
+      };
+
+      // ------------------------------------------------------------------
+      // 2. containerEl'in içindeki üst-seviye sayfa div'lerini tara
+      //    ("report-page-1", "report-page-2" gibi .report-a4-page class'lı bloklar)
+      // ------------------------------------------------------------------
+      const topPages = Array.from(
+        containerEl.querySelectorAll(".report-a4-page")
+      );
+
+      if (topPages.length === 0) {
+        // Sab  it sayfa yapısı bulunamazsa containerEl'i olduğu gibi tek sayfa olarak döndür
+        return [containerEl];
+      }
+
+      const resultPages = [];
+
+      // ------------------------------------------------------------------
+      // 3. Her .report-a4-page'in gerçek yüksekliğini ölç;
+      //    eğer yükseklik maxPageHeightPx'i geçiyorsa içeriği böl
+      // ------------------------------------------------------------------
+      topPages.forEach((pageEl) => {
+        // Her .report-a4-page içinde alt blokları iterate et
+        const children = Array.from(pageEl.children);
+
+        // Footer mini olan blokları belirle (son child genellikle)
+        const footerEl = pageEl.querySelector(".report-page-footer-mini");
+        const footerHeight = footerEl ? footerEl.offsetHeight + 16 : 30;
+
+        const usableHeight = maxPageHeightPx - footerHeight;
+
+        let currentPage = makePageWrapper();
+        let currentPageInner = document.createElement("div");
+        currentPageInner.style.width = "100%";
+        currentPageInner.style.boxSizing = "border-box";
+        currentPageInner.style.padding = "18px 24px 0 24px";
+        currentPage.appendChild(currentPageInner);
+        let currentFill = 18; // top padding
+
+        children.forEach((child) => {
+          if (child === footerEl) return; // footerü ayrıca işle
+
+          const elHeight = child.scrollHeight || child.offsetHeight || 0;
+
+          if (currentFill + elHeight > usableHeight && currentFill > 18) {
+            // Mevcut sayfayı footer ile kapat
+            if (footerEl) {
+              const footerClone = footerEl.cloneNode(true);
+              footerClone.style.marginTop = "auto";
+              footerClone.style.paddingLeft = "24px";
+              footerClone.style.paddingRight = "24px";
+              footerClone.style.paddingBottom = "10px";
+              currentPage.appendChild(footerClone);
+            }
+            resultPages.push(currentPage);
+
+            // Yeni sayfa başlat
+            currentPage = makePageWrapper();
+            currentPageInner = document.createElement("div");
+            currentPageInner.style.width = "100%";
+            currentPageInner.style.boxSizing = "border-box";
+            currentPageInner.style.padding = "18px 24px 0 24px";
+            currentPage.appendChild(currentPageInner);
+            currentFill = 18;
+          }
+
+          currentPageInner.appendChild(child.cloneNode(true));
+          currentFill += elHeight;
+        });
+
+        // Sondaki sayfayı footer ile kapat
+        if (footerEl) {
+          const footerClone = footerEl.cloneNode(true);
+          footerClone.style.marginTop = "auto";
+          footerClone.style.paddingLeft = "24px";
+          footerClone.style.paddingRight = "24px";
+          footerClone.style.paddingBottom = "10px";
+          currentPage.appendChild(footerClone);
+        }
+        resultPages.push(currentPage);
+      });
+
+      return resultPages;
+    }
+
     static async exportToPDF(reportElementId, fileName = "Sinav_Analiz_Raporu.pdf") {
-      const page1El = document.getElementById("report-page-1");
-      const page2El = document.getElementById("report-page-2");
       const rootEl = document.getElementById(reportElementId);
+      if (!rootEl) return false;
 
-      if (!page1El && !rootEl) return false;
-
-      showToast("Seçilebilir metin katmanlı (300 DPI) kurumsal PDF hazırlanıyor...", "info", 2000);
+      showToast("Şimdi PDF hazırlanıyor... Lütfen bekleyin.", "info", 3500);
 
       try {
         const { jsPDF } = window.jspdf || window;
         const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
 
-        const renderCanvasFromDom = async (domEl) => {
-          const tempWrap = document.createElement("div");
-          tempWrap.style.position = "fixed";
-          tempWrap.style.left = "-9999px";
-          tempWrap.style.top = "0";
-          tempWrap.style.width = "794px";
-          tempWrap.style.background = "#ffffff";
-          tempWrap.style.zIndex = "-9999";
-          tempWrap.innerHTML = domEl.outerHTML;
-          document.body.appendChild(tempWrap);
+        // -----------------------------------------------------------------
+        // Offscreen kapsayıcı
+        // -----------------------------------------------------------------
+        const offscreen = document.createElement("div");
+        offscreen.style.position = "fixed";
+        offscreen.style.left = "-9999px";
+        offscreen.style.top = "0";
+        offscreen.style.width = "794px";
+        offscreen.style.background = "#ffffff";
+        offscreen.style.zIndex = "-9999";
+        offscreen.innerHTML = rootEl.outerHTML;
+        document.body.appendChild(offscreen);
 
-          const target = tempWrap.firstElementChild;
-          target.style.boxShadow = "none";
-          target.style.borderRadius = "0";
-          target.style.margin = "0";
-          target.style.width = "794px";
-          target.style.maxWidth = "794px";
-          target.style.minHeight = "1120px";
-          target.style.background = "#ffffff";
+        // DOM'u render ettir (tarayıcının layout hesaplaması için kısa bekleme)
+        await new Promise((r) => setTimeout(r, 120));
 
-          const canvas = await window.html2canvas(target, {
-            scale: 3.0, // 300 DPI retina netliği
+        // -----------------------------------------------------------------
+        // Dinamik sayfalama — gerçek DOM yüksekliklerine göre
+        // -----------------------------------------------------------------
+        const pages = PDFService.paginateContent(offscreen, 1090);
+
+        for (let i = 0; i < pages.length; i++) {
+          const pageEl = pages[i];
+
+          // Offscreen'e ekle ki html2canvas offsetHeight/Top degerlerini okuyabilsin
+          if (pageEl.parentNode !== offscreen) {
+            offscreen.appendChild(pageEl);
+            await new Promise((r) => setTimeout(r, 40));
+          }
+
+          pageEl.style.width = "794px";
+          pageEl.style.maxWidth = "794px";
+          pageEl.style.boxShadow = "none";
+          pageEl.style.borderRadius = "0";
+          pageEl.style.margin = "0";
+
+          const canvas = await window.html2canvas(pageEl, {
+            scale: 3.0,
             useCORS: true,
             allowTaint: false,
             backgroundColor: "#ffffff",
             logging: false,
             scrollY: 0,
-            scrollX: 0
+            scrollX: 0,
+            // Tam sayfayı al; clip ile maxHeight'i aşan kısımları kes
+            height: 1090
           });
 
-          document.body.removeChild(tempWrap);
-          return canvas;
-        };
+          const imgData = canvas.toDataURL("image/png");
 
-        if (page1El) {
-          // Sayfa 1: Tam A4 sayfa render (Lossless PNG) + Seçilebilir Metin Katmanı
-          const c1 = await renderCanvasFromDom(page1El);
-          const imgData1 = c1.toDataURL("image/png");
-          pdf.addImage(imgData1, "PNG", 0, 0, 210, 297, undefined, "FAST");
-          this.addTextLayerToPdf(pdf, page1El, 210, 297);
-
-          // Sayfa 2: Tam A4 sayfa render (Lossless PNG) + Seçilebilir Metin Katmanı
-          if (page2El) {
-            pdf.addPage();
-            const c2 = await renderCanvasFromDom(page2El);
-            const imgData2 = c2.toDataURL("image/png");
-            pdf.addImage(imgData2, "PNG", 0, 0, 210, 297, undefined, "FAST");
-            this.addTextLayerToPdf(pdf, page2El, 210, 297);
-          }
-        } else {
-          const c = await renderCanvasFromDom(rootEl);
-          const imgData = c.toDataURL("image/png");
+          if (i > 0) pdf.addPage();
           pdf.addImage(imgData, "PNG", 0, 0, 210, 297, undefined, "FAST");
-          this.addTextLayerToPdf(pdf, rootEl, 210, 297);
+          PDFService.addTextLayerToPdf(pdf, pageEl, 210, 297);
         }
+
+        document.body.removeChild(offscreen);
 
         pdf.save(fileName);
         showToast("✓ Gerçek seçilebilir ve kopyalanabilir metinli PDF indirildi!", "success");
@@ -2484,8 +2595,10 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; box-sizing: border-box; }
             body { background: #ffffff !important; margin: 0; padding: 0; font-family: 'Inter', system-ui, sans-serif; color: #0f172a; }
             .report-a4-sheet { max-width: 100% !important; width: 100% !important; margin: 0 !important; }
-            .report-a4-page { max-width: 100% !important; width: 100% !important; min-height: 275mm !important; max-height: 280mm !important; padding: 10mm 12mm 8mm 12mm !important; box-sizing: border-box !important; box-shadow: none !important; border: none !important; background: #ffffff !important; page-break-after: always !important; break-after: page !important; display: flex !important; flex-direction: column !important; justify-content: space-between !important; }
+            .report-a4-page { max-width: 100% !important; width: 100% !important; padding: 10mm 12mm 8mm 12mm !important; box-sizing: border-box !important; box-shadow: none !important; border: none !important; background: #ffffff !important; page-break-after: always !important; break-after: page !important; display: flex !important; flex-direction: column !important; }
             .report-a4-page:last-child { page-break-after: auto !important; break-after: auto !important; }
+            .report-deficiency-item, .report-dense-subject-card, .recurring-card, .report-exam-card, .report-student-card, .report-comparison-kpis, .report-section { break-inside: avoid !important; page-break-inside: avoid !important; }
+            .report-schedule-matrix tr, .report-table tr { break-inside: avoid !important; page-break-inside: avoid !important; }
             .report-table th, .report-schedule-matrix th { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
             .report-badge-title, .badge, .schedule-etut-box, .schedule-stat-box, .schedule-coaching-tip { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           </style>
@@ -2599,62 +2712,67 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           if (pCount) pCount.innerText = `${i + 1} / ${total} Öğrenci (%${percent})`;
 
           const html = this.renderReportHTML(item.report, item.student, item.exams, state.institution);
-          const tempContainer = document.createElement("div");
-          tempContainer.style.position = "fixed";
-          tempContainer.style.left = "-9999px";
-          tempContainer.style.top = "0";
-          tempContainer.style.width = "794px";
-          tempContainer.style.background = "#ffffff";
-          tempContainer.style.zIndex = "-9999";
-          tempContainer.innerHTML = html;
-          document.body.appendChild(tempContainer);
-
-const page1El = tempContainer.querySelector("#report-page-1") || tempContainer.querySelector(".report-page-1");
-          const page2El = tempContainer.querySelector("#report-page-2") || tempContainer.querySelector(".report-page-2");
-
-          const renderBulkPage = async (domEl) => {
-            domEl.style.width = "794px";
-            domEl.style.maxWidth = "794px";
-            domEl.style.minHeight = "1120px";
-            domEl.style.boxShadow = "none";
-            domEl.style.borderRadius = "0";
-            domEl.style.margin = "0";
-            domEl.style.background = "#ffffff";
-
-            const c = await window.html2canvas(domEl, {
-              scale: 3.0,
-              useCORS: true,
-              allowTaint: false,
-              backgroundColor: "#ffffff",
-              scrollY: 0,
-              scrollX: 0,
-              logging: false
-            });
-            return c.toDataURL("image/png");
-          };
 
           try {
-            if (page1El) {
+            // Offscreen kapsayıcı
+            const tempContainer = document.createElement("div");
+            tempContainer.style.position = "fixed";
+            tempContainer.style.left = "-9999px";
+            tempContainer.style.top = "0";
+            tempContainer.style.width = "794px";
+            tempContainer.style.background = "#ffffff";
+            tempContainer.style.zIndex = "-9999";
+            tempContainer.innerHTML = html;
+            document.body.appendChild(tempContainer);
+
+            // DOM layout hesaplaması için kısa bekleme
+            await new Promise((r) => setTimeout(r, 80));
+
+            // Dinamik sayfalama
+            const pages = PDFService.paginateContent(tempContainer, 1090);
+
+            for (let p = 0; p < pages.length; p++) {
+              const pageEl = pages[p];
+
+              if (pageEl.parentNode !== tempContainer) {
+                tempContainer.appendChild(pageEl);
+                await new Promise((r) => setTimeout(r, 30));
+              }
+
+              pageEl.style.width = "794px";
+              pageEl.style.maxWidth = "794px";
+              pageEl.style.boxShadow = "none";
+              pageEl.style.borderRadius = "0";
+              pageEl.style.margin = "0";
+              pageEl.style.background = "#ffffff";
+
+              const c = await window.html2canvas(pageEl, {
+                scale: 3.0,
+                useCORS: true,
+                allowTaint: false,
+                backgroundColor: "#ffffff",
+                scrollY: 0,
+                scrollX: 0,
+                logging: false,
+                height: 1090
+              });
+
+              const imgData = c.toDataURL("image/png");
+
               if (!isFirstPage) pdf.addPage();
               isFirstPage = false;
-              const imgData1 = await renderBulkPage(page1El);
-              pdf.addImage(imgData1, "PNG", 0, 0, 210, 297, undefined, "FAST");
-              this.addTextLayerToPdf(pdf, page1El, 210, 297);
+
+              pdf.addImage(imgData, "PNG", 0, 0, 210, 297, undefined, "FAST");
+              PDFService.addTextLayerToPdf(pdf, pageEl, 210, 297);
             }
 
-            if (page2El) {
-              pdf.addPage();
-              const imgData2 = await renderBulkPage(page2El);
-              pdf.addImage(imgData2, "PNG", 0, 0, 210, 297, undefined, "FAST");
-              this.addTextLayerToPdf(pdf, page2El, 210, 297);
+            if (tempContainer && tempContainer.parentNode) {
+              document.body.removeChild(tempContainer);
             }
           } catch (studentErr) {
-            console.warn(`[Bulk PDF] ${item.student.adSoyad} render uyarısı:`, studentErr);
+            console.warn(`[Bulk PDF] ${item.student.adSoyad} render uyardı:`, studentErr);
           }
 
-          if (tempContainer && tempContainer.parentNode) {
-            document.body.removeChild(tempContainer);
-          }
           await new Promise((r) => setTimeout(r, 25));
         }
 

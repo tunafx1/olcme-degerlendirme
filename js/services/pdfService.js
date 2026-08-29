@@ -2,7 +2,91 @@ import { formatDate, escapeHtml, getVerifiedExamTotalNet, areKazanimlarEquivalen
 
 export class PDFService {
   /**
-   * Rapor DOM elementini A4 PDF dosyası olarak indirir
+   * DOM-ölçümlü dinamik PDF sayfalama motoru.
+   * Her .report-a4-page bloğunun gerçek yüksekliğini ölçerek N sayfa üretir.
+   *
+   * @param {HTMLElement} containerEl     - Offscreen render edilmiş kapsayıcı
+   * @param {number}      maxPageHeightPx - Kullanılabilir A4 yüksekliği (px, 794px genişlik üzerinden)
+   * @returns {HTMLElement[]}
+   */
+  static paginateContent(containerEl, maxPageHeightPx = 1090) {
+    const makePageWrapper = () => {
+      const w = document.createElement("div");
+      w.style.width = "794px";
+      w.style.minHeight = `${maxPageHeightPx}px`;
+      w.style.maxHeight = `${maxPageHeightPx}px`;
+      w.style.background = "#ffffff";
+      w.style.overflow = "hidden";
+      w.style.position = "relative";
+      w.style.boxSizing = "border-box";
+      w.style.padding = "0";
+      return w;
+    };
+
+    const topPages = Array.from(containerEl.querySelectorAll(".report-a4-page"));
+    if (topPages.length === 0) return [containerEl];
+
+    const resultPages = [];
+
+    topPages.forEach((pageEl) => {
+      const children = Array.from(pageEl.children);
+      const footerEl = pageEl.querySelector(".report-page-footer-mini");
+      const footerHeight = footerEl ? footerEl.offsetHeight + 16 : 30;
+      const usableHeight = maxPageHeightPx - footerHeight;
+
+      let currentPage = makePageWrapper();
+      let currentPageInner = document.createElement("div");
+      currentPageInner.style.width = "100%";
+      currentPageInner.style.boxSizing = "border-box";
+      currentPageInner.style.padding = "18px 24px 0 24px";
+      currentPage.appendChild(currentPageInner);
+      let currentFill = 18;
+
+      children.forEach((child) => {
+        if (child === footerEl) return;
+
+        const elHeight = child.scrollHeight || child.offsetHeight || 0;
+
+        if (currentFill + elHeight > usableHeight && currentFill > 18) {
+          if (footerEl) {
+            const fc = footerEl.cloneNode(true);
+            fc.style.marginTop = "auto";
+            fc.style.paddingLeft = "24px";
+            fc.style.paddingRight = "24px";
+            fc.style.paddingBottom = "10px";
+            currentPage.appendChild(fc);
+          }
+          resultPages.push(currentPage);
+
+          currentPage = makePageWrapper();
+          currentPageInner = document.createElement("div");
+          currentPageInner.style.width = "100%";
+          currentPageInner.style.boxSizing = "border-box";
+          currentPageInner.style.padding = "18px 24px 0 24px";
+          currentPage.appendChild(currentPageInner);
+          currentFill = 18;
+        }
+
+        currentPageInner.appendChild(child.cloneNode(true));
+        currentFill += elHeight;
+      });
+
+      if (footerEl) {
+        const fc = footerEl.cloneNode(true);
+        fc.style.marginTop = "auto";
+        fc.style.paddingLeft = "24px";
+        fc.style.paddingRight = "24px";
+        fc.style.paddingBottom = "10px";
+        currentPage.appendChild(fc);
+      }
+      resultPages.push(currentPage);
+    });
+
+    return resultPages;
+  }
+
+  /**
+   * Rapor DOM elementini dinamik sayfalama ile A4 PDF dosyası olarak indirir.
    */
   static async exportToPDF(reportElementId, fileName = "Sinav_Analiz_Raporu.pdf") {
     const element = document.getElementById(reportElementId);
@@ -10,54 +94,68 @@ export class PDFService {
       throw new Error("Rapor şablonu bulunamadı.");
     }
 
-    // jsPDF ve html2canvas kütüphanelerini kontrol et
-    if (window.html2canvas && (window.jspdf || window.jsPDF)) {
-      try {
-        const { jsPDF } = window.jspdf || window;
-        
-        const canvas = await window.html2canvas(element, {
-          scale: 2, // Retina / Yüksek çözünürlük
+    if (!window.html2canvas || !(window.jspdf || window.jsPDF)) {
+      this.printReport(reportElementId);
+      return true;
+    }
+
+    try {
+      const { jsPDF } = window.jspdf || window;
+
+      const offscreen = document.createElement("div");
+      offscreen.style.position = "fixed";
+      offscreen.style.left = "-9999px";
+      offscreen.style.top = "0";
+      offscreen.style.width = "794px";
+      offscreen.style.background = "#ffffff";
+      offscreen.style.zIndex = "-9999";
+      offscreen.innerHTML = element.outerHTML;
+      document.body.appendChild(offscreen);
+
+      // DOM layout hesaplaması için tarayıcıya zaman ver
+      await new Promise((r) => setTimeout(r, 120));
+
+      const pages = PDFService.paginateContent(offscreen, 1090);
+
+      const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+
+      for (let i = 0; i < pages.length; i++) {
+        const pageEl = pages[i];
+
+        if (pageEl.parentNode !== offscreen) {
+          offscreen.appendChild(pageEl);
+          await new Promise((r) => setTimeout(r, 40));
+        }
+
+        pageEl.style.width = "794px";
+        pageEl.style.maxWidth = "794px";
+        pageEl.style.boxShadow = "none";
+        pageEl.style.borderRadius = "0";
+        pageEl.style.margin = "0";
+
+        const canvas = await window.html2canvas(pageEl, {
+          scale: 2,
           useCORS: true,
           logging: false,
           backgroundColor: "#ffffff",
-          windowWidth: 1200
+          scrollY: 0,
+          scrollX: 0,
+          height: 1090
         });
 
         const imgData = canvas.toDataURL("image/jpeg", 0.95);
-        const pdf = new jsPDF({
-          orientation: "portrait",
-          unit: "mm",
-          format: "a4"
-        });
-
-        const pageWidth = pdf.internal.pageSize.getWidth();
-        const pageHeight = pdf.internal.pageSize.getHeight();
-        const imgWidth = pageWidth;
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-        let heightLeft = imgHeight;
-        let position = 0;
-
-        pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-
-        while (heightLeft > 5) {
-          position = heightLeft - imgHeight;
-          pdf.addPage();
-          pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight);
-          heightLeft -= pageHeight;
-        }
-
-        pdf.save(fileName);
-        return true;
-      } catch (err) {
-        console.warn("[PDF Service] jsPDF dönüştürme hatası, sistem print modalı açılıyor:", err);
+        if (i > 0) pdf.addPage();
+        pdf.addImage(imgData, "JPEG", 0, 0, 210, 297);
       }
-    }
 
-    // Fallback: Tarayıcının yerel yüksek kaliteli PDF yazdırma motoru
-    this.printReport(reportElementId);
-    return true;
+      document.body.removeChild(offscreen);
+      pdf.save(fileName);
+      return true;
+    } catch (err) {
+      console.warn("[PDF Service] jsPDF dönüştürme hatası, sistem print modalı açılıyor:", err);
+      this.printReport(reportElementId);
+      return true;
+    }
   }
 
   /**
@@ -66,6 +164,7 @@ export class PDFService {
   static printReport(reportElementId) {
     window.print();
   }
+
 
   /**
    * Rapor verisinden dinamik HTML şablonu üretir

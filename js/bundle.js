@@ -3772,6 +3772,14 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const subeStr = s.sube || "8/A";
       const studentReports = reports.filter((r) => r && (r.ogrenciId === s.id || (r.ogrenciAdSoyad && r.ogrenciAdSoyad.toLowerCase() === name.toLowerCase())));
 
+      const veliAd = s.veliAdSoyad ? s.veliAdSoyad.trim() : "";
+      const veliTel = s.veliTelefon ? s.veliTelefon.trim() : "";
+      let veliHtml = "";
+      if (veliAd && veliTel) veliHtml = `<div>${escapeHtml(veliAd)} &middot; <span style="font-size: 11px; color: var(--text-muted);">${escapeHtml(veliTel)}</span></div>`;
+      else if (veliAd) veliHtml = `<div>${escapeHtml(veliAd)}</div>`;
+      else if (veliTel) veliHtml = `<div>${escapeHtml(veliTel)}</div>`;
+      else veliHtml = `<div style="color: var(--text-muted); font-size: 11px; font-style: italic;">Veli bilgisi eklenmedi</div>`;
+
       return `
         <tr class="student-row" data-id="${s.id || ''}">
           <td data-label="Öğrenci Bilgisi">
@@ -3798,7 +3806,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
               `}
             </div>
           </td>
-          <td data-label="Veli Bilgisi"><div>${escapeHtml(s.veliAdSoyad || "-")}</div><div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(s.veliTelefon || "-")}</div></td>
+          <td data-label="Veli Bilgisi">${veliHtml}</td>
           <td data-label="İşlemler" style="text-align: right;">
             <div class="btn-group">
               <button class="btn btn-sm btn-outline" onclick="window.app.openStudentProfile('${s.id}')">Profil</button>

@@ -3680,6 +3680,30 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
 
   function renderStudentsView() {
     const state = store.getState();
+    const gradeFilter = window.app?.studentGradeFilter || "all";
+    const branchFilter = window.app?.studentBranchFilter || "all";
+    const searchQuery = window.app?.studentSearchQuery || "";
+    
+    // Sınıf filtrelerini dinamik oluştur
+    const uniqueClasses = [...new Set(state.students.map((s) => s.sinif).filter(Boolean))].sort((a, b) => Number(a) - Number(b));
+    let classButtons = `<button class="filter-btn ${gradeFilter === 'all' ? 'active' : ''}" data-class="all" onclick="window.app.filterStudentsByClass('all')">Tüm Sınıflar</button>`;
+    uniqueClasses.forEach((cls) => {
+      classButtons += `<button class="filter-btn ${gradeFilter === cls ? 'active' : ''}" data-class="${escapeHtml(cls)}" onclick="window.app.filterStudentsByClass('${escapeHtml(cls)}')">${escapeHtml(cls)}. Sınıf</button>`;
+    });
+
+    let branchButtonsHtml = "";
+    if (gradeFilter !== "all") {
+       const branches = [...new Set(state.students.filter((s) => s.sinif === gradeFilter).map((s) => s.sube).filter(Boolean))].sort();
+       if (branches.length > 0) {
+         branchButtonsHtml = `
+           <div class="filter-tags" style="margin-top: 8px;">
+             <button class="filter-btn ${branchFilter === 'all' ? 'active' : ''}" style="font-size: 11px; padding: 4px 8px;" onclick="window.app.filterStudentsByBranch('all')">Tüm Şubeler</button>
+             ${branches.map((br) => `<button class="filter-btn ${branchFilter === br ? 'active' : ''}" style="font-size: 11px; padding: 4px 8px;" onclick="window.app.filterStudentsByBranch('${escapeHtml(br)}')">${escapeHtml(br)}</button>`).join("")}
+           </div>
+         `;
+       }
+    }
+
     return `
       <div class="view-container animate-fade-in">
         <div class="view-header">
@@ -3699,13 +3723,13 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         <div class="filter-bar card">
           <div class="filter-search">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input type="text" id="student-search-input" class="search-input" placeholder="İsim veya öğrenci no ile ara..." oninput="window.app.filterStudents()" />
+            <input type="text" id="student-search-input" class="search-input" placeholder="İsim veya öğrenci no ile ara..." value="${escapeHtml(searchQuery)}" oninput="window.app.onStudentSearchInput(this.value)" />
           </div>
-          <div class="filter-tags">
-            <button class="filter-btn active" data-class="all" onclick="window.app.filterStudentsByClass('all', this)">Tüm Sınıflar</button>
-            <button class="filter-btn" data-class="8" onclick="window.app.filterStudentsByClass('8', this)">8. Sınıf (LGS)</button>
-            <button class="filter-btn" data-class="11" onclick="window.app.filterStudentsByClass('11', this)">11. Sınıf</button>
-            <button class="filter-btn" data-class="12" onclick="window.app.filterStudentsByClass('12', this)">12. Sınıf (YKS)</button>
+          <div class="filter-tags-wrap" style="width: 100%;">
+            <div class="filter-tags">
+              ${classButtons}
+            </div>
+            ${branchButtonsHtml}
           </div>
         </div>
 
@@ -6122,19 +6146,39 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       }
     }
 
+    onStudentSearchInput(val) {
+      this.studentSearchQuery = val;
+      this.filterStudents();
+    }
+
     filterStudents() {
-      const query = document.getElementById("student-search-input")?.value.toLowerCase().trim() || "";
-      const filtered = store.getState().students.filter((s) => s.adSoyad.toLowerCase().includes(query) || (s.numara && s.numara.includes(query)));
+      const query = (this.studentSearchQuery || "").toLowerCase().trim();
+      const gradeF = this.studentGradeFilter || "all";
+      const branchF = this.studentBranchFilter || "all";
+      
+      const filtered = store.getState().students.filter((s) => {
+         if (gradeF !== "all" && s.sinif !== gradeF) return false;
+         if (branchF !== "all" && s.sube !== branchF) return false;
+         return s.adSoyad.toLowerCase().includes(query) || (s.numara && String(s.numara).includes(query));
+      });
       const tbody = document.getElementById("students-tbody");
       if (tbody) tbody.innerHTML = renderStudentRows(filtered, store.getState().exams);
     }
 
-    filterStudentsByClass(classVal, btn) {
-      document.querySelectorAll(".filter-tags .filter-btn").forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      const filtered = store.getState().students.filter((s) => classVal === "all" || s.sinif === classVal);
-      const tbody = document.getElementById("students-tbody");
-      if (tbody) tbody.innerHTML = renderStudentRows(filtered, store.getState().exams);
+    filterStudentsByClass(classVal) {
+      this.studentGradeFilter = classVal;
+      this.studentBranchFilter = "all"; // Reset branch when class changes
+      
+      // We pass forceTabChange=true (or just manipulate the logic) so that the entire view re-renders with new branch chips, without fade-in
+      this._lastRenderedTab = null; 
+      this.renderCurrentView();
+      // Ensure focus is returned if needed, though clicking a button removes focus anyway.
+    }
+
+    filterStudentsByBranch(branchVal) {
+      this.studentBranchFilter = branchVal;
+      this._lastRenderedTab = null; 
+      this.renderCurrentView();
     }
 
     openAddExamModal() { this.openUploadPdfModal(); }

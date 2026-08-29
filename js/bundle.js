@@ -2321,244 +2321,6 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       }
     }
 
-    /**
-     * DOM-ölçümlü dinamik PDF sayfalaması.
-     *
-     * Mevcut sab  it "2 sayfa" varsayımının yerine:
-     *  1. rapor HTML'ini offscreen bir kapsayıcıya render et
-     *  2. her üst-seviye blok elemanlarının gerçek yüksekliklerini ölç
-     *  3. A4 sayfasının kullanılabilir yüksekliğini aşan noktalarda yeni sayfa başlat
-     *  4. Her sayfa dilimine ait bir wrapper HTMLElement döndür
-     *
-     * @param {HTMLElement} containerEl - Offscreen render edilmiş rapor kapsayıcısı
-     * @param {number} maxPageHeightPx  - Bir A4 sayfasının piksel yüksekliği (794px genişlik üzerinden)
-     * @returns {HTMLElement[]}         - Her biri bir PDF sayfasına karşılık gelen wrapper'lar
-     */
-    static paginateContent(containerEl, maxPageHeightPx = 1090) {
-      // ------------------------------------------------------------------
-      // 1. Bir sayfalık wrapper oluştur
-      // ------------------------------------------------------------------
-      const makePageWrapper = () => {
-        const w = document.createElement("div");
-        w.style.width = "794px";
-        w.style.minHeight = `${maxPageHeightPx}px`;
-        w.style.maxHeight = `${maxPageHeightPx}px`;
-        w.style.background = "#ffffff";
-        w.style.overflow = "hidden";  // sadece wrapper için clip; içerisindeki kartlara dokunmaz
-        w.style.position = "relative";
-        w.style.boxSizing = "border-box";
-        w.style.padding = "0";
-        return w;
-      };
-
-      // ------------------------------------------------------------------
-      // 2. containerEl'in içindeki üst-seviye sayfa div'lerini tara
-      //    ("report-page-1", "report-page-2" gibi .report-a4-page class'lı bloklar)
-      // ------------------------------------------------------------------
-      const topPages = Array.from(
-        containerEl.querySelectorAll(".report-a4-page")
-      );
-
-      if (topPages.length === 0) {
-        // Sab  it sayfa yapısı bulunamazsa containerEl'i olduğu gibi tek sayfa olarak döndür
-        return [containerEl];
-      }
-
-      const resultPages = [];
-
-      // ------------------------------------------------------------------
-      // 3. Her .report-a4-page'in gerçek yüksekliğini ölç;
-      //    eğer yükseklik maxPageHeightPx'i geçiyorsa içeriği böl
-      // ------------------------------------------------------------------
-      topPages.forEach((pageEl) => {
-        // Her .report-a4-page içinde alt blokları iterate et
-        const children = Array.from(pageEl.children);
-
-        // Footer mini olan blokları belirle (son child genellikle)
-        const footerEl = pageEl.querySelector(".report-page-footer-mini");
-        const footerHeight = footerEl ? footerEl.offsetHeight + 16 : 30;
-
-        const usableHeight = maxPageHeightPx - footerHeight;
-
-        let currentPage = makePageWrapper();
-        let currentPageInner = document.createElement("div");
-        currentPageInner.style.width = "100%";
-        currentPageInner.style.boxSizing = "border-box";
-        currentPageInner.style.padding = "18px 24px 0 24px";
-        currentPage.appendChild(currentPageInner);
-        let currentFill = 18; // top padding
-
-        children.forEach((child) => {
-          if (child === footerEl) return; // footerü ayrıca işle
-
-          const elHeight = child.scrollHeight || child.offsetHeight || 0;
-
-          if (currentFill + elHeight > usableHeight && currentFill > 18) {
-            // Mevcut sayfayı footer ile kapat
-            if (footerEl) {
-              const footerClone = footerEl.cloneNode(true);
-              footerClone.style.marginTop = "auto";
-              footerClone.style.paddingLeft = "24px";
-              footerClone.style.paddingRight = "24px";
-              footerClone.style.paddingBottom = "10px";
-              currentPage.appendChild(footerClone);
-            }
-            resultPages.push(currentPage);
-
-            // Yeni sayfa başlat
-            currentPage = makePageWrapper();
-            currentPageInner = document.createElement("div");
-            currentPageInner.style.width = "100%";
-            currentPageInner.style.boxSizing = "border-box";
-            currentPageInner.style.padding = "18px 24px 0 24px";
-            currentPage.appendChild(currentPageInner);
-            currentFill = 18;
-          }
-
-          currentPageInner.appendChild(child.cloneNode(true));
-          currentFill += elHeight;
-        });
-
-        // Sondaki sayfayı footer ile kapat
-        if (footerEl) {
-          const footerClone = footerEl.cloneNode(true);
-          footerClone.style.marginTop = "auto";
-          footerClone.style.paddingLeft = "24px";
-          footerClone.style.paddingRight = "24px";
-          footerClone.style.paddingBottom = "10px";
-          currentPage.appendChild(footerClone);
-        }
-        resultPages.push(currentPage);
-      });
-
-      return resultPages;
-    }
-
-    static async exportToPDF(reportElementId, fileName = "Sinav_Analiz_Raporu.pdf") {
-      const rootEl = document.getElementById(reportElementId);
-      if (!rootEl) return false;
-
-      showToast("Şimdi PDF hazırlanıyor... Lütfen bekleyin.", "info", 3500);
-
-      try {
-        const { jsPDF } = window.jspdf || window;
-        const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
-
-        // -----------------------------------------------------------------
-        // Offscreen kapsayıcı
-        // -----------------------------------------------------------------
-        const offscreen = document.createElement("div");
-        offscreen.style.position = "fixed";
-        offscreen.style.left = "-9999px";
-        offscreen.style.top = "0";
-        offscreen.style.width = "794px";
-        offscreen.style.background = "#ffffff";
-        offscreen.style.zIndex = "-9999";
-        offscreen.innerHTML = rootEl.outerHTML;
-        document.body.appendChild(offscreen);
-
-        // DOM'u render ettir (tarayıcının layout hesaplaması için kısa bekleme)
-        await new Promise((r) => setTimeout(r, 120));
-
-        // -----------------------------------------------------------------
-        // Dinamik sayfalama — gerçek DOM yüksekliklerine göre
-        // -----------------------------------------------------------------
-        const pages = PDFService.paginateContent(offscreen, 1090);
-
-        for (let i = 0; i < pages.length; i++) {
-          const pageEl = pages[i];
-
-          // Offscreen'e ekle ki html2canvas offsetHeight/Top degerlerini okuyabilsin
-          if (pageEl.parentNode !== offscreen) {
-            offscreen.appendChild(pageEl);
-            await new Promise((r) => setTimeout(r, 40));
-          }
-
-          pageEl.style.width = "794px";
-          pageEl.style.maxWidth = "794px";
-          pageEl.style.boxShadow = "none";
-          pageEl.style.borderRadius = "0";
-          pageEl.style.margin = "0";
-
-          const canvas = await window.html2canvas(pageEl, {
-            scale: 3.0,
-            useCORS: true,
-            allowTaint: false,
-            backgroundColor: "#ffffff",
-            logging: false,
-            scrollY: 0,
-            scrollX: 0,
-            // Tam sayfayı al; clip ile maxHeight'i aşan kısımları kes
-            height: 1090
-          });
-
-          const imgData = canvas.toDataURL("image/png");
-
-          if (i > 0) pdf.addPage();
-          pdf.addImage(imgData, "PNG", 0, 0, 210, 297, undefined, "FAST");
-          PDFService.addTextLayerToPdf(pdf, pageEl, 210, 297);
-        }
-
-        document.body.removeChild(offscreen);
-
-        pdf.save(fileName);
-        showToast("✓ Gerçek seçilebilir ve kopyalanabilir metinli PDF indirildi!", "success");
-        return true;
-      } catch (err) {
-        console.warn("[PDF Engine] jsPDF hatası, yazdırma penceresine geçiliyor:", err);
-        this.printReport(reportElementId);
-        return false;
-      }
-    }
-
-    static downloadStandaloneHTML(reportElementId, fileName = "Sinav_Raporu.html") {
-      const element = document.getElementById(reportElementId);
-      if (!element) return;
-
-      const htmlContent = `<!DOCTYPE html>
-<html lang="tr">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${fileName.replace(".html", "")}</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://olcme-degerlendirme.vercel.app/css/index.css">
-  <link rel="stylesheet" href="https://olcme-degerlendirme.vercel.app/css/report.css">
-  <style>
-    @page { size: A4 portrait; margin: 8mm 10mm; }
-    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; box-sizing: border-box; }
-    body { background: #f1f5f9; margin: 0; padding: 20px; font-family: 'Inter', system-ui, sans-serif; }
-    .report-a4-sheet { max-width: 820px; margin: 0 auto; }
-    .report-a4-page { background: #ffffff; box-shadow: 0 4px 20px rgba(0,0,0,0.08); margin-bottom: 24px; border-radius: 8px; }
-    @media print {
-      body { background: #ffffff !important; padding: 0 !important; }
-      .report-a4-page { box-shadow: none !important; border-radius: 0 !important; margin: 0 !important; page-break-after: always !important; break-after: page !important; }
-      .no-print { display: none !important; }
-    }
-  </style>
-</head>
-<body>
-  <div class="no-print" style="max-width: 820px; margin: 0 auto 16px auto; display: flex; justify-content: space-between; align-items: center; background: #0f172a; color: #ffffff; padding: 12px 20px; border-radius: 8px;">
-    <div><strong>📑 Kurumsal Sınav Analiz Raporu</strong></div>
-    <button onclick="window.print()" style="background: #2563eb; color: #ffffff; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 700; cursor: pointer;">🖨️ PDF Olarak Kaydet / Yazdır</button>
-  </div>
-  <div class="report-a4-sheet">
-    ${element.innerHTML}
-  </div>
-</body>
-</html>`;
-
-      const blob = new Blob([htmlContent], { type: "text/html;charset=utf-8" });
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(blob);
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      showToast("✓ Bağımsız HTML Raporu başarıyla indirildi!", "success");
-    }
 
     static printReport(reportElementId) {
       const element = document.getElementById(reportElementId);
@@ -2619,10 +2381,6 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     }
 
     static async exportBulkExamReports(examName, state) {
-      if (!window.html2canvas || !(window.jspdf || window.jsPDF)) {
-        showToast("PDF motoru yüklenemedi. Lütfen internet bağlantınızı kontrol edin.", "error");
-        return false;
-      }
 
       const cleanExamName = (examName || "").trim();
       // Sınava ait kayıtları topla (büyük/küçük harf duyarsız)
@@ -2700,10 +2458,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const pCount = document.getElementById("bulk-pdf-progress-count");
 
       try {
-        const { jsPDF } = window.jspdf || window;
-        const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-        let isFirstPage = true;
-
+        let combinedHtml = "";
         for (let i = 0; i < total; i++) {
           const item = targetItems[i];
           const percent = Math.round(((i + 1) / total) * 100);
@@ -2712,79 +2467,63 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           if (pCount) pCount.innerText = `${i + 1} / ${total} Öğrenci (%${percent})`;
 
           const html = this.renderReportHTML(item.report, item.student, item.exams, state.institution);
-
-          try {
-            // Offscreen kapsayıcı
-            const tempContainer = document.createElement("div");
-            tempContainer.style.position = "fixed";
-            tempContainer.style.left = "-9999px";
-            tempContainer.style.top = "0";
-            tempContainer.style.width = "794px";
-            tempContainer.style.background = "#ffffff";
-            tempContainer.style.zIndex = "-9999";
-            tempContainer.innerHTML = html;
-            document.body.appendChild(tempContainer);
-
-            // DOM layout hesaplaması için kısa bekleme
-            await new Promise((r) => setTimeout(r, 80));
-
-            // Dinamik sayfalama
-            const pages = PDFService.paginateContent(tempContainer, 1090);
-
-            for (let p = 0; p < pages.length; p++) {
-              const pageEl = pages[p];
-
-              if (pageEl.parentNode !== tempContainer) {
-                tempContainer.appendChild(pageEl);
-                await new Promise((r) => setTimeout(r, 30));
-              }
-
-              pageEl.style.width = "794px";
-              pageEl.style.maxWidth = "794px";
-              pageEl.style.boxShadow = "none";
-              pageEl.style.borderRadius = "0";
-              pageEl.style.margin = "0";
-              pageEl.style.background = "#ffffff";
-
-              const c = await window.html2canvas(pageEl, {
-                scale: 3.0,
-                useCORS: true,
-                allowTaint: false,
-                backgroundColor: "#ffffff",
-                scrollY: 0,
-                scrollX: 0,
-                logging: false,
-                height: 1090
-              });
-
-              const imgData = c.toDataURL("image/png");
-
-              if (!isFirstPage) pdf.addPage();
-              isFirstPage = false;
-
-              pdf.addImage(imgData, "PNG", 0, 0, 210, 297, undefined, "FAST");
-              PDFService.addTextLayerToPdf(pdf, pageEl, 210, 297);
-            }
-
-            if (tempContainer && tempContainer.parentNode) {
-              document.body.removeChild(tempContainer);
-            }
-          } catch (studentErr) {
-            console.warn(`[Bulk PDF] ${item.student.adSoyad} render uyardı:`, studentErr);
-          }
-
-          await new Promise((r) => setTimeout(r, 25));
+          combinedHtml += `<div style="page-break-after: always; break-after: page;">${html}</div>`;
         }
 
-        const safeFileName = (cleanExamName || "Sinav_Analiz")
-          .replace(/[^a-zA-Z0-9çÇğĞıİöÖşŞüÜ_-]/g, "_")
-          .substring(0, 35) + `_Toplu_${total}_Ogrenci_Raporu.pdf`;
+        let printFrame = document.getElementById("bulk-print-frame");
+        if (!printFrame) {
+          printFrame = document.createElement("iframe");
+          printFrame.id = "bulk-print-frame";
+          printFrame.style.position = "fixed";
+          printFrame.style.right = "0";
+          printFrame.style.bottom = "0";
+          printFrame.style.width = "0";
+          printFrame.style.height = "0";
+          printFrame.style.border = "0";
+          document.body.appendChild(printFrame);
+        }
 
-        pdf.save(safeFileName);
-        showToast(`✓ ${total} öğrencinin AI analizli toplu raporu başarıyla indirildi!`, "success", 5000);
+        const frameDoc = printFrame.contentWindow.document;
+        frameDoc.open();
+        frameDoc.write(`
+          <!DOCTYPE html>
+          <html lang="tr">
+          <head>
+            <meta charset="UTF-8">
+            <title>Toplu Sınav Analiz Raporu - ${cleanExamName}</title>
+            <link rel="preconnect" href="https://fonts.googleapis.com">
+            <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+            <link rel="stylesheet" href="./css/index.css">
+            <link rel="stylesheet" href="./css/report.css">
+            <style>
+              @page { size: A4 portrait; margin: 8mm 10mm; }
+              * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; box-sizing: border-box; }
+              body { background: #ffffff !important; margin: 0; padding: 0; font-family: 'Inter', system-ui, sans-serif; color: #0f172a; }
+              .report-a4-sheet { max-width: 100% !important; width: 100% !important; margin: 0 !important; }
+              .report-a4-page { max-width: 100% !important; width: 100% !important; padding: 10mm 12mm 8mm 12mm !important; box-sizing: border-box !important; box-shadow: none !important; border: none !important; background: #ffffff !important; display: flex !important; flex-direction: column !important; }
+              .report-deficiency-item, .report-dense-subject-card, .recurring-card, .report-exam-card, .report-student-card, .report-comparison-kpis, .report-section { break-inside: avoid !important; page-break-inside: avoid !important; }
+              .report-schedule-matrix tr, .report-table tr { break-inside: avoid !important; page-break-inside: avoid !important; }
+              .report-table th, .report-schedule-matrix th { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+              .report-badge-title, .badge, .schedule-etut-box, .schedule-stat-box, .schedule-coaching-tip { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+            </style>
+          </head>
+          <body>
+            ${combinedHtml}
+          </body>
+          </html>
+        `);
+        frameDoc.close();
+
+        setTimeout(() => {
+          printFrame.contentWindow.focus();
+          printFrame.contentWindow.print();
+        }, 800);
+
+        showToast(`✓ ${total} öğrencinin toplu raporu yazdırmaya hazır!`, "success", 4000);
       } catch (err) {
-        console.error("[Bulk PDF Error]", err);
-        showToast("Toplu PDF oluşturulurken hata: " + err.message, "error");
+        console.error("[Bulk Print Error]", err);
+        showToast("Toplu yazdırma oluşturulurken hata: " + err.message, "error");
       } finally {
         if (progressModal && progressModal.parentNode) {
           progressModal.style.display = "none";
@@ -3305,119 +3044,96 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
 
       return `
         <div class="report-a4-sheet" id="printable-report-sheet">
-          <div class="report-a4-page report-page-1" id="report-page-1">
-            <div class="report-page-content">
-              <div class="report-header">
-                <div class="report-header-left">
-                  ${logoHtml}
-                  <div class="report-institution-info">
-                    <h1 class="report-institution-title">${institution.ad}</h1>
-                    <div class="report-institution-meta">
-                      <span>📍 ${institution.adres || "Adres"}</span>
-                      <span>📞 ${institution.telefon || "-"}</span>
-                      ${institution.kurumKodu ? `<span>🏢 Kod: ${institution.kurumKodu}</span>` : ""}
-                    </div>
+          <div class="report-a4-page" style="padding: 24px 32px; gap: 16px;">
+            
+            <!-- ORTAK ANTET (Tüm Rapor İçin 1 Kere) -->
+            <div class="report-header">
+              <div class="report-header-left">
+                ${logoHtml}
+                <div class="report-institution-info">
+                  <h1 class="report-institution-title">${institution.ad}</h1>
+                  <div class="report-institution-meta">
+                    <span>📍 ${institution.adres || "Adres"}</span>
+                    <span>📞 ${institution.telefon || "-"}</span>
+                    ${institution.kurumKodu ? `<span>🏢 Kod: ${institution.kurumKodu}</span>` : ""}
                   </div>
                 </div>
-                <div class="report-header-right">
-                  <div class="report-badge-title" style="background: ${themeColor}; font-size: ${isMulti ? '9px' : '11px'};">${pageTitle}</div>
-                  <div class="report-date-badge">Tarih: ${formatDate(report.olusturmaTarihi)}</div>
-                </div>
               </div>
-
-              <div class="report-student-card" style="border-top-color: ${themeColor};">
-                <div class="student-meta-item"><span class="meta-label">Öğrenci Adı Soyadı:</span><span class="meta-value"><strong>${student.adSoyad}</strong></span></div>
-                <div class="student-meta-item"><span class="meta-label">Sınıf / Şube:</span><span class="meta-value">${student.sinif}. Sınıf (${student.sube})</span></div>
-                <div class="student-meta-item"><span class="meta-label">Öğrenci No:</span><span class="meta-value">#${student.numara || "-"}</span></div>
-                <div class="student-meta-item">
-                  <span class="meta-label">${isMulti ? "Sınav Net Seyri:" : "Toplam Net:"}</span>
-                  <span class="meta-value">
-                    ${isMulti 
-                      ? `<span class="badge badge-primary font-bold">${getVerifiedExamTotalNet(firstExam)} ➔ ${getVerifiedExamTotalNet(latestExam)} Net</span>`
-                      : `<span class="badge badge-primary font-bold">${getVerifiedExamTotalNet(firstExam)} Net</span>`
-                    }
-                  </span>
-                </div>
+              <div class="report-header-right">
+                <div class="report-badge-title" style="background: ${themeColor}; font-size: ${isMulti ? '11px' : '13px'}; padding: 6px 12px;">${pageTitle}</div>
+                <div class="report-date-badge" style="font-size: 12px;">Tarih: ${formatDate(report.olusturmaTarihi)}</div>
               </div>
+            </div>
 
-              ${comparisonKpisHtml}
-              ${crossSubjectMatrixHtml}
+            <!-- ÖĞRENCİ KÜNYE -->
+            <div class="report-student-card" style="border-top-color: ${themeColor}; font-size: 13px;">
+              <div class="student-meta-item"><span class="meta-label">Öğrenci Adı Soyadı:</span><span class="meta-value" style="font-size: 14px;"><strong>${student.adSoyad}</strong></span></div>
+              <div class="student-meta-item"><span class="meta-label">Sınıf / Şube:</span><span class="meta-value">${student.sinif}. Sınıf (${student.sube})</span></div>
+              <div class="student-meta-item"><span class="meta-label">Öğrenci No:</span><span class="meta-value">#${student.numara || "-"}</span></div>
+              <div class="student-meta-item">
+                <span class="meta-label">${isMulti ? "Sınav Net Seyri:" : "Toplam Net:"}</span>
+                <span class="meta-value">
+                  ${isMulti 
+                    ? `<span class="badge badge-primary font-bold" style="font-size: 13px;">${getVerifiedExamTotalNet(firstExam)} ➔ ${getVerifiedExamTotalNet(latestExam)} Net</span>`
+                    : `<span class="badge badge-primary font-bold" style="font-size: 13px;">${getVerifiedExamTotalNet(firstExam)} Net</span>`
+                  }
+                </span>
+              </div>
+            </div>
 
-              ${!isMulti ? `
-                <div class="report-section">
-                  <div class="report-section-header" style="border-color: ${themeColor};">
-                    <h3 style="color: ${themeColor};">📊 Sınav Net ve Başarı Dağılımı</h3>
-                  </div>
-                  <div class="report-exams-container">${examRows}</div>
+            <!-- İÇERİK BLOKLARI (Serbest Akış) -->
+            ${comparisonKpisHtml}
+            ${crossSubjectMatrixHtml}
+
+            ${!isMulti ? `
+              <div class="report-section">
+                <div class="report-section-header" style="border-color: ${themeColor};">
+                  <h3 style="color: ${themeColor}; font-size: 14px;">📊 Sınav Net ve Başarı Dağılımı</h3>
+                </div>
+                <div class="report-exams-container">${examRows}</div>
+              </div>
+            ` : ""}
+
+            ${eksikHtml}
+
+            <!-- YORUM VE GELİŞİM -->
+            <div class="report-section" style="break-inside: avoid;">
+              <div class="report-section-header" style="border-color: ${themeColor};">
+                <h3 style="color: ${themeColor}; font-size: 14px;">📝 Pedagojik Değerlendirme & Rehberlik Yorumu</h3>
+              </div>
+              <div class="report-comment-box" style="padding: 10px 14px; font-size: 12px; line-height: 1.5;">
+                <div class="report-comment-quote-icon" style="color: ${themeColor}; font-size: 24px;">“</div>
+                <div class="report-comment-text">${report.genelYorum || "Değerlendirme mevcut değil."}</div>
+              </div>
+              ${report.gelisimAnalizi ? `
+                <div class="report-trend-box mt-2" style="background: rgba(37, 99, 235, 0.04); border: 1.5px solid rgba(37, 99, 235, 0.2); border-radius: 6px; padding: 10px 14px;">
+                  <div class="report-trend-title" style="font-weight: 800; color: #1e40af; font-size: 12px; margin-bottom: 4px;">📈 Gelişim Seyri ve Karşılaştırma Analizi:</div>
+                  <div class="report-trend-text" style="font-size: 11.5px; line-height: 1.5; color: #334155;">${report.gelisimAnalizi.replace(/\n/g, '<br/>')}</div>
                 </div>
               ` : ""}
-
-              ${eksikHtml}
-
-              <div class="report-section mb-0">
-                <div class="report-section-header" style="border-color: ${themeColor};">
-                  <h3 style="color: ${themeColor}; font-size: 11.5px;">📝 Pedagojik Değerlendirme & Rehberlik Yorumu</h3>
-                </div>
-                <div class="report-comment-box" style="padding: 6px 10px;">
-                  <div class="report-comment-quote-icon" style="color: ${themeColor}; font-size: 18px;">“</div>
-                  <div class="report-comment-text" style="font-size: 9.5px; line-height: 1.35;">${report.genelYorum || "Değerlendirme mevcut değil."}</div>
-                </div>
-                ${report.gelisimAnalizi ? `
-                  <div class="report-trend-box mt-1" style="background: rgba(37, 99, 235, 0.04); border: 1.5px solid rgba(37, 99, 235, 0.2); border-radius: 4px; padding: 4px 8px;">
-                    <div class="report-trend-title" style="font-weight: 800; color: #1e40af; font-size: 10px;">📈 Gelişim Seyri ve Karşılaştırma Analizi:</div>
-                    <div class="report-trend-text" style="font-size: 9px; line-height: 1.35; color: #334155;">${report.gelisimAnalizi.replace(/\n/g, '<br/>')}</div>
-                  </div>
-                ` : ""}
-              </div>
             </div>
 
-            <div class="report-page-footer-mini">
-              <span>Bu rapor <strong>${institution.ad}</strong> Ölçme ve Değerlendirme Merkezi tarafından üretilmiştir.</span>
-              <span class="font-bold">Sayfa 1 / 2</span>
-            </div>
-          </div>
+            <!-- ETÜT MATRİSİ -->
+            ${scheduleMatrixHtml ? `<div style="margin-top: 20px;">${scheduleMatrixHtml}</div>` : ""}
 
-          <!-- 2. SAYFA: 7 GÜNLÜK LGS HAFTALIK ÇALIŞMA PLANI -->
-          <div class="report-a4-page report-page-2" id="report-page-2">
-            <div class="report-page-content">
-              <div class="report-page-header-mini">
-                <div class="d-flex items-center gap-2">
-                  ${logoHtmlMini}
-                  <div>
-                    <strong style="color: #0f172a; font-size: 13px;">${institution.ad}</strong>
-                    <div style="font-size: 10.5px; color: #64748b;">Öğrenci: <strong>${student.adSoyad}</strong> (${student.sinif}. Sınıf / ${student.sube})</div>
-                  </div>
-                </div>
-                <div class="d-flex items-center gap-2">
-                  <span class="badge badge-primary font-bold" style="font-size: 10px;">7 Günlük Bireysel Etüt Matrisi</span>
-                  <span style="font-size: 10px; color: #64748b;">Rapor Tarihi: ${formatDate(report.olusturmaTarihi)}</span>
+            <!-- GENEL İMZA VE FOOTER BLOKLARI (Sayfa sonuna veya doküman sonuna) -->
+            <div class="report-footer" style="border-top: 2px solid #e2e8f0; padding-top: 16px; margin-top: 30px; break-inside: avoid; display: flex; justify-content: space-between;">
+              <div class="report-footer-left" style="max-width: 60%;">
+                <div style="font-size: 12px; font-weight: 700; color: #0f172a;">Öğrenci Gelişim & Takip Taahhüdü</div>
+                <div style="font-size: 11px; color: #64748b; margin-top: 6px; line-height: 1.4;">
+                  Bu rapor <strong>${institution.ad}</strong> Ölçme ve Değerlendirme Merkezi tarafından üretilmiştir.<br/>
+                  Yukarıda planlanan etüt ve soru hedeflerinin günlük olarak takip edilmesi önerilir.
                 </div>
               </div>
-
-              ${scheduleMatrixHtml}
-
-              <!-- 2. SAYFA İMZA / MÜHÜR BLOĞU -->
-              <div class="report-footer mt-auto" style="border-top: 1.5px solid #e2e8f0; padding-top: 10px; margin-top: auto;">
-                <div class="report-footer-left">
-                  <div style="font-size: 11px; font-weight: 700; color: #0f172a;">Öğrenci Gelişim & Takip Taahhüdü</div>
-                  <div style="font-size: 9.5px; color: #64748b; margin-top: 2px;">
-                    Yukarıda planlanan 7 günlük etüt ve soru hedeflerinin günlük olarak takip edilmesi ve pazar günü Hata Defteri kontrolünün yapılması önerilir.
-                  </div>
-                </div>
-                <div class="report-footer-right">
-                  <div class="report-signature-block">
-                    <span class="sig-title" style="font-size: 10.5px; font-weight: 700; color: #1e293b;">Rehberlik & Eğitim Danışmanı</span>
-                    <div style="height: 28px;"></div>
-                    <span class="sig-line" style="font-size: 9.5px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 2px; width: 140px; display: inline-block; text-align: center;">İmza / Kaşe</span>
-                  </div>
+              <div class="report-footer-right" style="text-align: center;">
+                <div class="report-signature-block">
+                  <span class="sig-title" style="font-size: 11.5px; font-weight: 700; color: #1e293b;">Rehberlik & Eğitim Danışmanı</span>
+                  <div style="height: 45px;"></div>
+                  <span class="sig-line" style="font-size: 11px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 4px; width: 160px; display: inline-block;">İmza / Kaşe</span>
                 </div>
               </div>
             </div>
 
-            <div class="report-page-footer-mini">
-              <span>${institution.ad} • Yapay Zekâ Destekli Ölçme ve Değerlendirme Sistemi</span>
-              <span class="font-bold">Sayfa 2 / 2</span>
-            </div>
           </div>
         </div>
       `;
@@ -7023,9 +6739,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             <div class="modal-header">
               <h3 class="modal-title">Öğrenci Sınav Karnesi & Raporu (${student.adSoyad})</h3>
               <div class="btn-group">
-                <button class="btn btn-sm btn-outline font-bold" onclick="window.app.downloadActiveReportHTML()" title="Bağımsız HTML Raporu İndir (.html)">🌐 HTML İndir</button>
-                <button class="btn btn-sm btn-primary font-bold shadow-glow" onclick="window.app.printActiveReport()" title="Kusursuz Vektörel PDF Kaydet / Yazdır (Sıfır kayma, gerçek seçilebilir metin)">🖨️ PDF Olarak Kaydet / Yazdır</button>
-                <button class="btn btn-sm btn-secondary font-bold" onclick="window.app.downloadActiveReportPDF()" title="Doğrudan İndir (Seçilebilir Metinli)">📑 Doğrudan İndir</button>
+                <button class="btn btn-sm btn-primary font-bold shadow-glow" onclick="window.app.printActiveReport()" title="Kusursuz Vektörel PDF Kaydet / Yazdır (Sıfır kayma, gerçek seçilebilir metin)">🖨️ Raporu İndir / Yazdır</button>
                 <button class="modal-close" onclick="window.app.closeModal('report-view-modal')">&times;</button>
               </div>
             </div>

@@ -135,7 +135,7 @@ export function renderAiAnalysisView() {
           <div class="ai-orb"></div>
         </div>
         <h3 class="ai-loading-title">Yapay Zekâ Analizi Gerçekleştiriliyor...</h3>
-        <p class="ai-loading-desc">Sınav kazanımları inceleniyor, eksikler tespit ediliyor ve öğrenciye özel haftalık çalışma programı derleniyor.</p>
+        <p class="ai-loading-desc">Sınav kazanımları inceleniyor, eksikler tespit ediliyor ve öğrenciye özel haftalık çalışma programı derleniyor. <br/><span style="display:inline-block; margin-top:8px; font-weight:800; color:var(--primary-color); font-size:16px;">⏱️ Geçen Süre: <span id="ai-single-timer">00:00</span></span></p>
         <div class="ai-progress-steps">
           <div class="ai-step active" id="step-1">✓ Sınav ve kazanım verileri derlendi</div>
           <div class="ai-step active" id="step-2">⚡ Pedagojik AI modeli çalıştırılıyor</div>

@@ -4495,6 +4495,30 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     }
 
     updateAnalysisProgress(info) {
+      if (info.status === "running" && this.activeAnalysis.status !== "running") {
+        this.analysisStartTime = Date.now();
+        this.analysisElapsedTime = "00:00";
+        if (this.analysisTimerInterval) clearInterval(this.analysisTimerInterval);
+        this.analysisTimerInterval = setInterval(() => {
+          const diff = Math.floor((Date.now() - this.analysisStartTime) / 1000);
+          const mins = String(Math.floor(diff / 60)).padStart(2, "0");
+          const secs = String(diff % 60).padStart(2, "0");
+          this.analysisElapsedTime = `${mins}:${secs}`;
+          this.updateNavbarAiStatus();
+          this.updateDashboardProgressDOM();
+          const singleTimer = document.getElementById("ai-single-timer");
+          if (singleTimer) singleTimer.innerText = this.analysisElapsedTime;
+        }, 1000);
+      } else if (info.status === "idle") {
+        if (this.analysisTimerInterval) {
+          clearInterval(this.analysisTimerInterval);
+          this.analysisTimerInterval = null;
+        }
+        this.analysisElapsedTime = "00:00";
+        const singleTimer = document.getElementById("ai-single-timer");
+        if (singleTimer) singleTimer.innerText = "00:00";
+      }
+
       this.activeAnalysis = { ...this.activeAnalysis, ...info };
       this.updateNavbarAiStatus();
       this.updateDashboardProgressDOM();
@@ -4506,7 +4530,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       if (this.activeAnalysis.status === "running") {
         el.innerHTML = `
           <span class="ai-pulse-dot" style="background: #38bdf8;"></span>
-          <span style="cursor: pointer;" onclick="window.app.openActiveAnalysisWindow()">AI Analiz Ediyor (%${this.activeAnalysis.percent}) ↗</span>
+          <span style="cursor: pointer;" onclick="window.app.openActiveAnalysisWindow()">AI İşleniyor (%${this.activeAnalysis.percent}) • ⏱️ ${this.analysisElapsedTime || "00:00"} ↗</span>
         `;
         el.style.background = "#eff6ff";
         el.style.borderColor = "#93c5fd";
@@ -4539,7 +4563,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const studentEl = document.getElementById("hero-analysis-student");
 
       if (titleEl) titleEl.innerText = this.activeAnalysis.title;
-      if (percentBadge) percentBadge.innerText = `%${this.activeAnalysis.percent}`;
+      if (percentBadge) percentBadge.innerText = `%${this.activeAnalysis.percent} • ⏱️ ${this.analysisElapsedTime || "00:00"}`;
       if (fillBar) fillBar.style.width = `${this.activeAnalysis.percent}%`;
       if (studentEl) studentEl.innerText = `👤 ${this.activeAnalysis.currentStudent || "Öğrenci Analiz Ediliyor"}`;
     }

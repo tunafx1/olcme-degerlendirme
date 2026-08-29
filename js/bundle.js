@@ -3478,13 +3478,15 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           const isAiRunning = window.app?.activeAnalysis?.status === "running";
           const st = window.app?.pdfAnalyzerLiveState || {};
           const isPdfParsing = (window.app?.isPdfParsing || window.app?.isSingleAiParsing) && !st.isCompleted;
-          const isAnalyzing = isAiRunning || isPdfParsing;
+          const isPdfParsingCompleted = st.isCompleted && !isAiRunning;
+          const isAnalyzing = isAiRunning || isPdfParsing || isPdfParsingCompleted;
           
           let title = "Canlı İşlem";
           let percent = 0;
           let subtitle = "";
           let timeText = "00:00";
           let statusText = "Canlı İşlem Devam Ediyor";
+          let themeColor = "#38bdf8";
           
           if (isAiRunning) {
             const analysis = window.app?.activeAnalysis || { percent: 0, title: "Yapay Zekâ Analizi", currentStudent: "" };
@@ -3498,15 +3500,22 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             subtitle = `👤 ${st.curr || 0} / ${st.total || 0} Öğrenci İşlendi (${st.studentName || "Öğrenci"})`;
             timeText = "⏳ Kalan: " + (st.remainingFormatted || (st.remainingSec ? "~" + st.remainingSec + " sn" : "Hesaplanıyor..."));
             statusText = "PDF Ayrıştırma İşlemi";
+          } else if (isPdfParsingCompleted) {
+             title = "🎉 PDF Ayrıştırma Tamamlandı";
+             percent = 100;
+             subtitle = `👤 ${st.total || 0} Öğrenci İşlendi ve Onayınızı Bekliyor`;
+             timeText = "✅ Tamamlandı";
+             statusText = "Bekleyen İşlem (Onay Bekleniyor)";
+             themeColor = "#22c55e";
           }
           
           if (isAnalyzing) {
             return `
-        <div class="dashboard-hero" id="dashboard-hero-progress-widget" style="border: 2px solid #38bdf8; box-shadow: 0 0 20px rgba(56, 189, 248, 0.15); display: flex; flex-direction: column; justify-content: center;">
+        <div class="dashboard-hero" id="dashboard-hero-progress-widget" style="border: 2px solid ${themeColor}; box-shadow: 0 0 20px ${themeColor}26; display: flex; flex-direction: column; justify-content: center;">
           <div class="dashboard-hero-content" style="width: 100%; max-width: 100%;">
             <div class="d-flex justify-between items-center mb-4">
-              <div class="dashboard-hero-badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid #38bdf8; margin-bottom: 0;">
-                <span class="ai-pulse-dot" style="background: #38bdf8; box-shadow: 0 0 12px #38bdf8;"></span>
+              <div class="dashboard-hero-badge" style="background: ${themeColor}33; color: ${themeColor}; border: 1px solid ${themeColor}; margin-bottom: 0;">
+                <span class="ai-pulse-dot" style="background: ${themeColor}; box-shadow: 0 0 12px ${themeColor};"></span>
                 <span id="hero-analysis-status-text">${statusText}</span>
               </div>
               <div style="font-size: 15px; font-weight: 600; color: #fff; background: rgba(255,255,255,0.1); padding: 6px 14px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1);">
@@ -3518,12 +3527,19 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             <p class="dashboard-hero-desc text-truncate" id="hero-analysis-student" style="font-size: 15px; color: #cbd5e1; max-width: 100%; opacity: 0.9;">${subtitle}</p>
             
             <div class="analysis-progress-track" style="margin: 20px 0; height: 10px; border-radius: 10px; background: rgba(255,255,255,0.1); overflow: hidden;">
-              <div class="analysis-progress-fill" id="hero-analysis-fill-bar" style="width: ${percent}%; height: 100%; border-radius: 10px; background: linear-gradient(90deg, #38bdf8, #2563eb); transition: width 0.3s ease;"></div>
+              <div class="analysis-progress-fill" id="hero-analysis-fill-bar" style="width: ${percent}%; height: 100%; border-radius: 10px; background: linear-gradient(90deg, ${themeColor}, #2563eb); transition: width 0.3s ease;"></div>
             </div>
             
             <div class="d-flex justify-between items-center" style="color: #94a3b8;">
               <span style="font-size: 14px;">Tamamlanma Oranı: <strong class="text-white" id="hero-analysis-percent-badge">%${percent}</strong></span>
             </div>
+            ${isPdfParsingCompleted ? `
+            <div style="margin-top: 20px;">
+              <button class="btn btn-success btn-lg shadow-glow" onclick="window.app.maximizePdfModal()" style="width: 100%; border-radius: 12px; font-weight: 600;">
+                🚀 Önizlemeyi Aç ve AI Analizini Başlat
+              </button>
+            </div>
+            ` : ""}
           </div>
         </div>
             `;
@@ -4579,14 +4595,19 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const isAiRunning = this.activeAnalysis?.status === "running";
       const st = this.pdfAnalyzerLiveState || {};
       const isPdfParsing = (this.isPdfParsing || this.isSingleAiParsing) && !st.isCompleted;
-      const isAnalyzing = isAiRunning || isPdfParsing;
+      const isPdfParsingCompleted = st.isCompleted && !isAiRunning;
+      const isAnalyzing = isAiRunning || isPdfParsing || isPdfParsingCompleted;
       
-      if (!widget) {
+      // Her zaman güncel durumu yansıtmak için renderCurrentView kullanabiliriz,
+      // Ancak animasyonların kırılmaması için sade metin güncellemeleri yapıyoruz.
+      // EĞER state 'isPdfParsingCompleted' olduysa ve içinde buton yoksa yeniden çiz.
+      if (!widget || (isPdfParsingCompleted && !widget.innerHTML.includes("Önizlemeyi Aç"))) {
         if (isAnalyzing) {
           this.renderCurrentView();
         }
         return;
       }
+      
       if (!isAnalyzing) {
         this.renderCurrentView();
         return;
@@ -4616,6 +4637,12 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         subtitle = `👤 ${st.curr || 0} / ${st.total || 0} Öğrenci İşlendi (${st.studentName || "Öğrenci"})`;
         timeText = "⏳ Kalan: " + (st.remainingFormatted || (st.remainingSec ? "~" + st.remainingSec + " sn" : "Hesaplanıyor..."));
         statusText = "PDF Ayrıştırma İşlemi";
+      } else if (isPdfParsingCompleted) {
+         title = "🎉 PDF Ayrıştırma Tamamlandı";
+         percent = 100;
+         subtitle = `👤 ${st.total || 0} Öğrenci İşlendi ve Onayınızı Bekliyor`;
+         timeText = "✅ Tamamlandı";
+         statusText = "Bekleyen İşlem (Onay Bekleniyor)";
       }
 
       if (titleEl) titleEl.innerText = title;

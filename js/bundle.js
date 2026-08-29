@@ -3734,7 +3734,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input type="text" id="student-search-input" class="search-input" placeholder="İsim veya öğrenci no ile ara..." value="${escapeHtml(searchQuery)}" oninput="window.app.onStudentSearchInput(this.value)" />
           </div>
-          <div class="filter-tags-wrap" style="width: 100%;">
+          <div class="filter-tags-wrap" style="display: flex; flex-direction: column; gap: 8px; flex: 2;">
             <div class="filter-tags">
               ${classButtons}
             </div>

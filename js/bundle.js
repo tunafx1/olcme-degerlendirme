@@ -3940,7 +3940,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
                 📥 Toplu PDF
               </button>
               <button class="btn btn-sm btn-primary font-bold shadow-sm" onclick="event.stopPropagation(); window.app.toggleExamGroup(${gIdx})">
-                <span>👥 Öğrenciler (${group.totalStudents})</span>
+                <span>Öğrenciler (${group.totalStudents})</span>
                 <svg class="exam-group-toggle-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
               </button>
               <button class="btn btn-sm btn-ghost text-danger font-bold" onclick="window.app.deleteExamGroupConfirm('${safeExamName}')" title="Bu sınavı ve katılan tüm öğrencilerin sınav kayıtlarını sil">

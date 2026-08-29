@@ -3791,17 +3791,17 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           <td data-label="Sınıf / Şube"><span class="badge badge-secondary">${sinifStr}. Sınıf / ${subeStr}</span></td>
           <td data-label="Numara"><strong>#${s.numara || "-"}</strong></td>
           <td data-label="Kayıtlı Sınav">
-            <div class="d-flex flex-column gap-1" style="align-items: flex-start;">
+            <div class="d-flex flex-row flex-wrap gap-1" style="align-items: center; justify-content: flex-end;">
               <span class="badge ${studentExams.length > 0 ? "badge-primary" : "badge-light"} cursor-pointer" onclick="window.app.openStudentProfile('${s.id}')" title="Sınav geçmişini ve profili görüntüle" style="cursor: pointer;">
                 📋 ${studentExams.length} Sınav
               </span>
               ${studentExams.length > 0 ? `
-                <button class="btn btn-sm btn-outline text-success border-success font-bold" onclick="event.stopPropagation(); window.app.openStudentAiReportModal('${s.id}')" title="Sınav seçerek AI Raporu aç veya yeni analiz oluştur" style="padding: 2px 8px; font-size: 11px; background: rgba(16, 185, 129, 0.08); border-radius: 99px; border-color: #10b981; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
-                  🤖 AI Raporu ${studentReports.length > 0 ? `(${studentReports.length})` : ""} ↗
+                <button class="btn btn-sm btn-outline text-success border-success font-bold" onclick="event.stopPropagation(); window.app.openStudentAiReportModal('${s.id}')" title="Sınav seçerek AI Raporu aç veya yeni analiz oluştur" style="padding: 2px 6px; font-size: 10.5px; background: rgba(16, 185, 129, 0.08); border-radius: 99px; border-color: #10b981; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
+                  🤖 Rapor ↗
                 </button>
               ` : `
                 <button class="btn btn-sm btn-ghost text-muted" onclick="event.stopPropagation(); window.app.openUploadPdfModal()" title="Sınav PDF Belgesi Yükle" style="padding: 1px 6px; font-size: 10.5px;">
-                  + Sınav Yükle
+                  + Yükle
                 </button>
               `}
             </div>

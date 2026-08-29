@@ -3473,7 +3473,41 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     const uniqueExams = Array.from(uniqueExamMap.entries()).map(([sinavAdi, count]) => ({ sinavAdi, count }));
 
     return `
-      <div class="view-container animate-fade-in">
+        ${(() => {
+          const isAnalyzing = window.app?.activeAnalysis?.status === "running";
+          const analysis = window.app?.activeAnalysis || { percent: 0, title: "Yapay Zekâ Analizi", currentStudent: "" };
+          const elapsedTime = window.app?.analysisElapsedTime || "00:00";
+          
+          if (isAnalyzing) {
+            return `
+        <div class="dashboard-hero" id="dashboard-hero-progress-widget" style="border: 2px solid #38bdf8; box-shadow: 0 0 20px rgba(56, 189, 248, 0.15); display: flex; flex-direction: column; justify-content: center;">
+          <div class="dashboard-hero-content" style="width: 100%; max-width: 100%;">
+            <div class="d-flex justify-between items-center mb-4">
+              <div class="dashboard-hero-badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid #38bdf8; margin-bottom: 0;">
+                <span class="ai-pulse-dot" style="background: #38bdf8; box-shadow: 0 0 12px #38bdf8;"></span>
+                <span>Canlı İşlem Devam Ediyor</span>
+              </div>
+              <div style="font-size: 15px; font-weight: 600; color: #fff; background: rgba(255,255,255,0.1); padding: 6px 14px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1);">
+                ⏱️ Geçen Süre: <span id="hero-analysis-timer">${elapsedTime}</span>
+              </div>
+            </div>
+            
+            <h1 class="dashboard-hero-title" id="hero-analysis-title" style="margin-bottom: 8px; font-size: 24px;">${analysis.title}</h1>
+            <p class="dashboard-hero-desc text-truncate" id="hero-analysis-student" style="font-size: 15px; color: #cbd5e1; max-width: 100%; opacity: 0.9;">👤 ${analysis.currentStudent || "Öğrenci Analiz Ediliyor"}</p>
+            
+            <div class="analysis-progress-track" style="margin: 20px 0; height: 10px; border-radius: 10px; background: rgba(255,255,255,0.1); overflow: hidden;">
+              <div class="analysis-progress-fill" id="hero-analysis-fill-bar" style="width: ${analysis.percent}%; height: 100%; border-radius: 10px; background: linear-gradient(90deg, #38bdf8, #2563eb); transition: width 0.3s ease;"></div>
+            </div>
+            
+            <div class="d-flex justify-between items-center" style="color: #94a3b8;">
+              <span style="font-size: 14px;">Tamamlanma Oranı: <strong class="text-white" id="hero-analysis-percent-badge">%${analysis.percent}</strong></span>
+            </div>
+          </div>
+        </div>
+            `;
+          }
+          
+          return `
         <div class="dashboard-hero">
           <div class="dashboard-hero-content">
             <div class="dashboard-hero-badge"><span class="pulse-dot"></span><span>${state.institution.ad} — Ölçme & Değerlendirme</span></div>
@@ -3481,36 +3515,6 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             <p class="dashboard-hero-desc">Tek bir öğrencinin veya <strong>70+ öğrencinin toplu PDF sınav karnesini</strong> tek seferde yükleyin; sistem her öğrenciyi, kazanımları ve netleri otomatik çözümler, OpenAI ChatGPT veya Gemini ile kişiselleştirilmiş 7 günlük çalışma programı ve grafikli karne üretir.</p>
           </div>
           <div class="dashboard-hero-actions">
-            ${(() => {
-              const isAnalyzing = window.app?.activeAnalysis?.status === "running";
-              const analysis = window.app?.activeAnalysis || { percent: 0, title: "Yapay Zekâ Analizi", currentStudent: "" };
-
-              if (isAnalyzing) {
-                return `
-                  <div class="hero-active-analysis-card" id="dashboard-hero-progress-widget" onclick="window.app.openActiveAnalysisWindow()" title="Analiz ekranını açmak için tıklayın">
-                    <div class="d-flex justify-between items-center mb-1">
-                      <div class="d-flex items-center gap-2">
-                        <span class="ai-pulse-dot" style="background: #38bdf8; box-shadow: 0 0 12px #38bdf8;"></span>
-                        <strong class="analysis-card-title" id="hero-analysis-title">${analysis.title}</strong>
-                      </div>
-                      <span class="badge badge-primary font-bold" id="hero-analysis-percent-badge" style="font-size: 11px; background: #2563eb; color: #fff;">%${analysis.percent}</span>
-                    </div>
-                    <div class="analysis-progress-track">
-                      <div class="analysis-progress-fill" id="hero-analysis-fill-bar" style="width: ${analysis.percent}%;"></div>
-                    </div>
-                    <div class="d-flex justify-between items-center" style="font-size: 11px; color: #94a3b8;">
-                      <span class="text-truncate" id="hero-analysis-student" style="max-width: 180px;">👤 ${analysis.currentStudent || "Öğrenci Analiz Ediliyor"}</span>
-                      <span class="analysis-card-open-link">Analiz Penceresini Aç ↗</span>
-                    </div>
-                  </div>
-                  <button class="btn btn-secondary btn-lg" onclick="window.app.openActiveAnalysisWindow()">
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z"/></svg>
-                    <span>Mevcut Analiz Penceresine Git</span>
-                  </button>
-                `;
-              }
-
-              return `
                 <button class="btn btn-primary btn-lg shadow-glow" onclick="window.app.openUploadPdfModal()">
                   <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6M9 15l3-3 3 3"/></svg>
                   <span>📄 PDF Sınav Belgesi Yükle (Tekli / 70+ Toplu)</span>
@@ -3519,8 +3523,10 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
                   <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z"/></svg>
                   <span>AI Analiz Paneli</span>
                 </button>
-              `;
-            })()}
+          </div>
+        </div>
+          `;
+        })()}
           </div>
         </div>
 
@@ -4561,11 +4567,13 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const percentBadge = document.getElementById("hero-analysis-percent-badge");
       const fillBar = document.getElementById("hero-analysis-fill-bar");
       const studentEl = document.getElementById("hero-analysis-student");
+      const timerEl = document.getElementById("hero-analysis-timer");
 
       if (titleEl) titleEl.innerText = this.activeAnalysis.title;
-      if (percentBadge) percentBadge.innerText = `%${this.activeAnalysis.percent} • ⏱️ ${this.analysisElapsedTime || "00:00"}`;
+      if (percentBadge) percentBadge.innerText = `%${this.activeAnalysis.percent}`;
       if (fillBar) fillBar.style.width = `${this.activeAnalysis.percent}%`;
       if (studentEl) studentEl.innerText = `👤 ${this.activeAnalysis.currentStudent || "Öğrenci Analiz Ediliyor"}`;
+      if (timerEl) timerEl.innerText = this.analysisElapsedTime || "00:00";
     }
 
     openActiveAnalysisWindow() {
@@ -4607,6 +4615,11 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       this.renderCurrentView();
       this.updateSidebarActiveState();
       this.updateNavbarAiStatus();
+      
+      const widget = document.getElementById("floating-pdf-analyzer-widget");
+      if (widget) {
+        widget.style.display = state.currentTab === "dashboard" ? "none" : "block";
+      }
     }
 
     renderCurrentView() {
@@ -4770,6 +4783,9 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         };
         document.body.appendChild(widget);
       }
+      
+      // Dashboard sayfasındayken popup'ı gizle
+      widget.style.display = store.getState().currentTab === "dashboard" ? "none" : "block";
 
       if (st.isCompleted) {
         widget.style.borderColor = "#16a34a";

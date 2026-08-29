@@ -3558,7 +3558,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           <div class="dashboard-hero-actions">
                 <button class="btn btn-primary btn-lg shadow-glow" onclick="window.app.openUploadPdfModal()">
                   <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6M9 15l3-3 3 3"/></svg>
-                  <span>📄 PDF Sınav Belgesi Yükle (Tekli / 70+ Toplu)</span>
+                  <span>📄 PDF Sınav Belgesi Yükle</span>
                 </button>
                 <button class="btn btn-secondary btn-lg" onclick="window.app.navigate('aiAnalysis')">
                   <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z"/></svg>

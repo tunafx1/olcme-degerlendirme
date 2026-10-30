@@ -215,6 +215,7 @@
   position: sticky;
   top: 0;
   z-index: 90;
+  will-change: transform;
 }
 
 .navbar-left {

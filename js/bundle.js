@@ -3499,6 +3499,81 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
 
     return `
       <div class="view-container animate-fade-in">
+        ${(() => {
+          const isAiRunning = window.app?.activeAnalysis?.status === "running";
+          const st = window.app?.pdfAnalyzerLiveState || {};
+          const isPdfParsing = (window.app?.isPdfParsing || window.app?.isSingleAiParsing) && !st.isCompleted;
+          const isPdfParsingCompleted = st.isCompleted && !isAiRunning;
+          const isAnalyzing = isAiRunning || isPdfParsing || isPdfParsingCompleted;
+          
+          let title = "Canlı İşlem";
+          let percent = 0;
+          let subtitle = "";
+          let timeText = "00:00";
+          let statusText = "Canlı İşlem Devam Ediyor";
+          let themeColor = "#38bdf8";
+          
+          if (isAiRunning) {
+            const analysis = window.app?.activeAnalysis || { percent: 0, title: "Yapay Zekâ Analizi", currentStudent: "" };
+            title = analysis.title || "Yapay Zekâ Analizi";
+            percent = analysis.percent || 0;
+            subtitle = "👤 " + (analysis.currentStudent || "Öğrenci Analiz Ediliyor");
+            timeText = "⏱️ Geçen Süre: " + (window.app?.analysisElapsedTime || "00:00");
+          } else if (isPdfParsing) {
+            title = "⚡ PDF Analiz Ediliyor";
+            percent = st.percent || 0;
+            subtitle = `👤 ${st.curr || 0} / ${st.total || 0} Öğrenci İşlendi (${st.studentName || "Öğrenci"})`;
+            timeText = "⏱️ Geçen Süre: " + (window.app?.pdfParsingElapsedTime || "00:00");
+            statusText = "PDF Ayrıştırma İşlemi";
+          } else if (isPdfParsingCompleted) {
+             title = "🎉 PDF Ayrıştırma Tamamlandı";
+             percent = 100;
+             subtitle = `👤 ${st.total || 0} Öğrenci İşlendi ve Onayınızı Bekliyor`;
+             timeText = "✅ Tamamlandı";
+             statusText = "Bekleyen İşlem (Onay Bekleniyor)";
+             themeColor = "#22c55e";
+          }
+          
+          if (isAnalyzing) {
+            return `
+        <div class="dashboard-hero" id="dashboard-hero-progress-widget" style="border: 2px solid ${themeColor}; box-shadow: 0 0 20px ${themeColor}26; display: flex; flex-direction: column; justify-content: center;">
+          <div class="dashboard-hero-content" style="width: 100%; max-width: 100%;">
+            <div class="d-flex justify-between items-center mb-4">
+              <div class="dashboard-hero-badge" style="background: ${themeColor}33; color: ${themeColor}; border: 1px solid ${themeColor}; margin-bottom: 0;">
+                <span class="ai-pulse-dot" style="background: ${themeColor}; box-shadow: 0 0 12px ${themeColor};"></span>
+                <span id="hero-analysis-status-text">${statusText}</span>
+              </div>
+              <div style="font-size: 15px; font-weight: 600; color: #fff; background: rgba(255,255,255,0.1); padding: 6px 14px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1);">
+                <span id="hero-analysis-timer">${timeText}</span>
+              </div>
+            </div>
+            
+            <h1 class="dashboard-hero-title" id="hero-analysis-title" style="margin-bottom: 8px; font-size: 24px;">${title}</h1>
+            <p class="dashboard-hero-desc text-truncate" id="hero-analysis-student" style="font-size: 15px; color: #cbd5e1; max-width: 100%; opacity: 0.9;">${subtitle}</p>
+            
+            <div class="analysis-progress-track" style="margin: 20px 0; height: 10px; border-radius: 10px; background: rgba(255,255,255,0.1); overflow: hidden;">
+              <div class="analysis-progress-fill" id="hero-analysis-fill-bar" style="width: ${percent}%; height: 100%; border-radius: 10px; background: linear-gradient(90deg, ${themeColor}, #2563eb); transition: width 0.3s ease;"></div>
+            </div>
+            
+            <div class="d-flex justify-between items-center" style="color: #94a3b8;">
+              <span style="font-size: 14px;">Tamamlanma Oranı: <strong class="text-white" id="hero-analysis-percent-badge">%${percent}</strong></span>
+            </div>
+            ${isPdfParsingCompleted ? `
+            <div style="margin-top: 20px; display: flex; gap: 10px;">
+              <button class="btn btn-success btn-lg shadow-glow" onclick="window.app.maximizePdfModal()" style="flex: 1; border-radius: 12px; font-weight: 600;">
+                🚀 Önizlemeyi Aç ve AI Analizini Başlat
+              </button>
+              <button class="btn btn-outline" onclick="window.app.cancelPdfParsing()" style="border-radius: 12px; font-weight: 600; padding: 0 20px; color: #ef4444; border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.05);" title="İşlemi İptal Et ve Sil">
+                Sil / İptal Et
+              </button>
+            </div>
+            ` : ""}
+          </div>
+        </div>
+            `;
+          }
+          
+          return `
         <div class="dashboard-hero">
           <div class="dashboard-hero-content">
             <div class="dashboard-hero-badge"><span class="pulse-dot"></span><span>${state.institution.ad} — Ölçme & Değerlendirme</span></div>
@@ -3506,46 +3581,18 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             <p class="dashboard-hero-desc">Tek bir öğrencinin veya <strong>70+ öğrencinin toplu PDF sınav karnesini</strong> tek seferde yükleyin; sistem her öğrenciyi, kazanımları ve netleri otomatik çözümler, OpenAI ChatGPT veya Gemini ile kişiselleştirilmiş 7 günlük çalışma programı ve grafikli karne üretir.</p>
           </div>
           <div class="dashboard-hero-actions">
-            ${(() => {
-              const isAnalyzing = window.app?.activeAnalysis?.status === "running";
-              const analysis = window.app?.activeAnalysis || { percent: 0, title: "Yapay Zekâ Analizi", currentStudent: "" };
-
-              if (isAnalyzing) {
-                return `
-                  <div class="hero-active-analysis-card" id="dashboard-hero-progress-widget" onclick="window.app.openActiveAnalysisWindow()" title="Analiz ekranını açmak için tıklayın">
-                    <div class="d-flex justify-between items-center mb-1">
-                      <div class="d-flex items-center gap-2">
-                        <span class="ai-pulse-dot" style="background: #38bdf8; box-shadow: 0 0 12px #38bdf8;"></span>
-                        <strong class="analysis-card-title" id="hero-analysis-title">${analysis.title}</strong>
-                      </div>
-                      <span class="badge badge-primary font-bold" id="hero-analysis-percent-badge" style="font-size: 11px; background: #2563eb; color: #fff;">%${analysis.percent}</span>
-                    </div>
-                    <div class="analysis-progress-track">
-                      <div class="analysis-progress-fill" id="hero-analysis-fill-bar" style="width: ${analysis.percent}%;"></div>
-                    </div>
-                    <div class="d-flex justify-between items-center" style="font-size: 11px; color: #94a3b8;">
-                      <span class="text-truncate" id="hero-analysis-student" style="max-width: 180px;">👤 ${analysis.currentStudent || "Öğrenci Analiz Ediliyor"}</span>
-                      <span class="analysis-card-open-link">Analiz Penceresini Aç ↗</span>
-                    </div>
-                  </div>
-                  <button class="btn btn-secondary btn-lg" onclick="window.app.openActiveAnalysisWindow()">
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z"/></svg>
-                    <span>Mevcut Analiz Penceresine Git</span>
-                  </button>
-                `;
-              }
-
-              return `
                 <button class="btn btn-primary btn-lg shadow-glow" onclick="window.app.openUploadPdfModal()">
                   <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6M9 15l3-3 3 3"/></svg>
-                  <span>📄 PDF Sınav Belgesi Yükle (Tekli / 70+ Toplu)</span>
+                  <span>📄 PDF Sınav Belgesi Yükle</span>
                 </button>
                 <button class="btn btn-secondary btn-lg" onclick="window.app.navigate('aiAnalysis')">
                   <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z"/></svg>
                   <span>AI Analiz Paneli</span>
                 </button>
-              `;
-            })()}
+          </div>
+        </div>
+          `;
+        })()}
           </div>
         </div>
 
@@ -3658,6 +3705,39 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
 
   function renderStudentsView() {
     const state = store.getState();
+    const gradeFilter = window.app?.studentGradeFilter || "all";
+    const branchFilter = window.app?.studentBranchFilter || "all";
+    const searchQuery = window.app?.studentSearchQuery || "";
+    
+    // Apply filters before rendering the rows
+    const filteredStudents = state.students.filter((s) => {
+      const matchGrade = gradeFilter === "all" || s.sinif === gradeFilter;
+      const matchBranch = branchFilter === "all" || s.sube === branchFilter;
+      const q = searchQuery.toLowerCase().trim();
+      const matchQuery = !q || s.adSoyad.toLowerCase().includes(q) || (s.numara && String(s.numara).includes(q));
+      return matchGrade && matchBranch && matchQuery;
+    });
+
+    // Sınıf filtrelerini dinamik oluştur
+    const uniqueClasses = [...new Set(state.students.map((s) => s.sinif).filter(Boolean))].sort((a, b) => Number(a) - Number(b));
+    let classButtons = `<button class="filter-btn ${gradeFilter === 'all' ? 'active' : ''}" data-class="all" onclick="window.app.filterStudentsByClass('all')">Tüm Sınıflar</button>`;
+    uniqueClasses.forEach((cls) => {
+      classButtons += `<button class="filter-btn ${gradeFilter === cls ? 'active' : ''}" data-class="${escapeHtml(cls)}" onclick="window.app.filterStudentsByClass('${escapeHtml(cls)}')">${escapeHtml(cls)}. Sınıf</button>`;
+    });
+
+    let branchButtonsHtml = "";
+    if (gradeFilter !== "all") {
+       const branches = [...new Set(state.students.filter((s) => s.sinif === gradeFilter).map((s) => s.sube).filter(Boolean))].sort();
+       if (branches.length > 0) {
+         branchButtonsHtml = `
+           <div class="filter-tags" style="margin-top: 8px;">
+             <button class="filter-btn ${branchFilter === 'all' ? 'active' : ''}" style="font-size: 11px; padding: 4px 8px;" onclick="window.app.filterStudentsByBranch('all')">Tüm Şubeler</button>
+             ${branches.map((br) => `<button class="filter-btn ${branchFilter === br ? 'active' : ''}" style="font-size: 11px; padding: 4px 8px;" onclick="window.app.filterStudentsByBranch('${escapeHtml(br)}')">${escapeHtml(br)}</button>`).join("")}
+           </div>
+         `;
+       }
+    }
+
     return `
       <div class="view-container animate-fade-in">
         <div class="view-header">
@@ -3677,22 +3757,22 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         <div class="filter-bar card">
           <div class="filter-search">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input type="text" id="student-search-input" class="search-input" placeholder="İsim veya öğrenci no ile ara..." oninput="window.app.filterStudents()" />
+            <input type="text" id="student-search-input" class="search-input" placeholder="İsim veya öğrenci no ile ara..." value="${escapeHtml(searchQuery)}" oninput="window.app.onStudentSearchInput(this.value)" />
           </div>
-          <div class="filter-tags">
-            <button class="filter-btn active" data-class="all" onclick="window.app.filterStudentsByClass('all', this)">Tüm Sınıflar</button>
-            <button class="filter-btn" data-class="8" onclick="window.app.filterStudentsByClass('8', this)">8. Sınıf (LGS)</button>
-            <button class="filter-btn" data-class="11" onclick="window.app.filterStudentsByClass('11', this)">11. Sınıf</button>
-            <button class="filter-btn" data-class="12" onclick="window.app.filterStudentsByClass('12', this)">12. Sınıf (YKS)</button>
+          <div class="filter-tags-wrap" style="display: flex; flex-direction: column; gap: 8px; flex: 2;">
+            <div class="filter-tags">
+              ${classButtons}
+            </div>
+            ${branchButtonsHtml}
           </div>
         </div>
 
         <div class="card">
           <div class="card-body p-0">
             <div class="table-responsive">
-              <table class="data-table">
-                <thead><tr><th>Öğrenci Bilgisi</th><th>Sınıf / Şube</th><th>Numara</th><th>Kayıtlı Sınav</th><th>Veli Bilgisi</th><th style="text-align: right;">İşlemler</th></tr></thead>
-                <tbody id="students-tbody">${renderStudentRows(state.students, state.exams)}</tbody>
+              <table class="data-table responsive-card-table">
+                <thead><tr><th>Öğrenci Bilgisi</th><th>Sınıf / Şube</th><th>Numara</th><th>Kayıtlı Sınav</th><th style="text-align: right;">İşlemler</th></tr></thead>
+                <tbody id="students-tbody">${renderStudentRows(filteredStudents, state.exams)}</tbody>
               </table>
             </div>
           </div>
@@ -3719,32 +3799,31 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
 
       return `
         <tr class="student-row" data-id="${s.id || ''}">
-          <td>
+          <td data-label="Öğrenci Bilgisi">
             <div class="user-avatar-group">
               <div class="user-avatar-initials">${initials}</div>
               <div><div class="font-bold text-dark cursor-pointer" onclick="window.app.openStudentProfile('${s.id}')">${escapeHtml(name)}</div><div style="font-size: 12px; color: var(--text-muted);">${formatDate(s.olusturmaTarihi)}</div></div>
             </div>
           </td>
-          <td><span class="badge badge-secondary">${sinifStr}. Sınıf / ${subeStr}</span></td>
-          <td><strong>#${s.numara || "-"}</strong></td>
-          <td>
-            <div class="d-flex flex-column gap-1" style="align-items: flex-start;">
+          <td data-label="Sınıf / Şube"><span class="badge badge-secondary">${sinifStr}. Sınıf / ${subeStr}</span></td>
+          <td data-label="Numara"><strong>#${s.numara || "-"}</strong></td>
+          <td data-label="Kayıtlı Sınav">
+            <div class="d-flex flex-row flex-wrap gap-1" style="align-items: center; justify-content: flex-end;">
               <span class="badge ${studentExams.length > 0 ? "badge-primary" : "badge-light"} cursor-pointer" onclick="window.app.openStudentProfile('${s.id}')" title="Sınav geçmişini ve profili görüntüle" style="cursor: pointer;">
                 📋 ${studentExams.length} Sınav
               </span>
               ${studentExams.length > 0 ? `
-                <button class="btn btn-sm btn-outline text-success border-success font-bold" onclick="event.stopPropagation(); window.app.openStudentAiReportModal('${s.id}')" title="Sınav seçerek AI Raporu aç veya yeni analiz oluştur" style="padding: 2px 8px; font-size: 11px; background: rgba(16, 185, 129, 0.08); border-radius: 99px; border-color: #10b981; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
-                  🤖 AI Raporu ${studentReports.length > 0 ? `(${studentReports.length})` : ""} ↗
+                <button class="btn btn-sm btn-outline text-success border-success font-bold" onclick="event.stopPropagation(); window.app.openStudentAiReportModal('${s.id}')" title="Sınav seçerek AI Raporu aç veya yeni analiz oluştur" style="padding: 2px 6px; font-size: 10.5px; background: rgba(16, 185, 129, 0.08); border-radius: 99px; border-color: #10b981; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
+                  🤖 Rapor ↗
                 </button>
               ` : `
                 <button class="btn btn-sm btn-ghost text-muted" onclick="event.stopPropagation(); window.app.openUploadPdfModal()" title="Sınav PDF Belgesi Yükle" style="padding: 1px 6px; font-size: 10.5px;">
-                  + Sınav Yükle
+                  + Yükle
                 </button>
               `}
             </div>
           </td>
-          <td><div>${escapeHtml(s.veliAdSoyad || "-")}</div><div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(s.veliTelefon || "-")}</div></td>
-          <td style="text-align: right;">
+          <td data-label="İşlemler" style="text-align: right;">
             <div class="btn-group">
               <button class="btn btn-sm btn-outline" onclick="window.app.openStudentProfile('${s.id}')">Profil</button>
               <button class="btn btn-sm btn-ghost" onclick="window.app.openStudentModal('${s.id}')">Düzenle</button>
@@ -3886,7 +3965,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
                 📥 Toplu PDF
               </button>
               <button class="btn btn-sm btn-primary font-bold shadow-sm" onclick="event.stopPropagation(); window.app.toggleExamGroup(${gIdx})">
-                <span>👥 Öğrenciler (${group.totalStudents})</span>
+                <span>Öğrenciler (${group.totalStudents})</span>
                 <svg class="exam-group-toggle-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
               </button>
               <button class="btn btn-sm btn-ghost text-danger font-bold" onclick="window.app.deleteExamGroupConfirm('${safeExamName}')" title="Bu sınavı ve katılan tüm öğrencilerin sınav kayıtlarını sil">
@@ -4361,6 +4440,8 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         totalSteps: 0,
         message: ""
       };
+      this.pdfAnalyzerLiveState = { isCompleted: false };
+      this._lastRenderedTab = null;
       this.init();
     }
 
@@ -4572,25 +4653,66 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     updateDashboardProgressDOM() {
       if (store.getState().currentTab !== "dashboard") return;
       const widget = document.getElementById("dashboard-hero-progress-widget");
-      if (!widget) {
-        if (this.activeAnalysis.status === "running") {
+      
+      const isAiRunning = this.activeAnalysis?.status === "running";
+      const st = this.pdfAnalyzerLiveState || {};
+      const isPdfParsing = (this.isPdfParsing || this.isSingleAiParsing) && !st.isCompleted;
+      const isPdfParsingCompleted = st.isCompleted && !isAiRunning;
+      const isAnalyzing = isAiRunning || isPdfParsing || isPdfParsingCompleted;
+      
+      // Her zaman güncel durumu yansıtmak için renderCurrentView kullanabiliriz,
+      // Ancak animasyonların kırılmaması için sade metin güncellemeleri yapıyoruz.
+      // EĞER state 'isPdfParsingCompleted' olduysa ve içinde buton yoksa yeniden çiz.
+      if (!widget || (isPdfParsingCompleted && !widget.innerHTML.includes("Önizlemeyi Aç"))) {
+        if (isAnalyzing) {
           this.renderCurrentView();
         }
         return;
       }
-      if (this.activeAnalysis.status !== "running") {
+      
+      if (!isAnalyzing) {
         this.renderCurrentView();
         return;
       }
+      
       const titleEl = document.getElementById("hero-analysis-title");
       const percentBadge = document.getElementById("hero-analysis-percent-badge");
       const fillBar = document.getElementById("hero-analysis-fill-bar");
       const studentEl = document.getElementById("hero-analysis-student");
+      const timerEl = document.getElementById("hero-analysis-timer");
+      const statusTextEl = document.getElementById("hero-analysis-status-text");
 
-      if (titleEl) titleEl.innerText = this.activeAnalysis.title;
-      if (percentBadge) percentBadge.innerText = `%${this.activeAnalysis.percent} • ⏱️ ${this.analysisElapsedTime || "00:00"}`;
-      if (fillBar) fillBar.style.width = `${this.activeAnalysis.percent}%`;
-      if (studentEl) studentEl.innerText = `👤 ${this.activeAnalysis.currentStudent || "Öğrenci Analiz Ediliyor"}`;
+      let title = "Canlı İşlem";
+      let percent = 0;
+      let subtitle = "";
+      let timeText = "00:00";
+      let statusText = "Canlı İşlem Devam Ediyor";
+
+      if (isAiRunning) {
+        title = this.activeAnalysis.title || "Yapay Zekâ Analizi";
+        percent = this.activeAnalysis.percent || 0;
+        subtitle = "👤 " + (this.activeAnalysis.currentStudent || "Öğrenci Analiz Ediliyor");
+        timeText = "⏱️ Geçen Süre: " + (this.analysisElapsedTime || "00:00");
+      } else if (isPdfParsing) {
+        title = "⚡ PDF Analiz Ediliyor";
+        percent = st.percent || 0;
+        subtitle = `👤 ${st.curr || 0} / ${st.total || 0} Öğrenci İşlendi (${st.studentName || "Öğrenci"})`;
+        timeText = "⏱️ Geçen Süre: " + (this.pdfParsingElapsedTime || "00:00");
+        statusText = "PDF Ayrıştırma İşlemi";
+      } else if (isPdfParsingCompleted) {
+         title = "🎉 PDF Ayrıştırma Tamamlandı";
+         percent = 100;
+         subtitle = `👤 ${st.total || 0} Öğrenci İşlendi ve Onayınızı Bekliyor`;
+         timeText = "✅ Tamamlandı";
+         statusText = "Bekleyen İşlem (Onay Bekleniyor)";
+      }
+
+      if (titleEl) titleEl.innerText = title;
+      if (percentBadge) percentBadge.innerText = `%${percent}`;
+      if (fillBar) fillBar.style.width = `${percent}%`;
+      if (studentEl) studentEl.innerText = subtitle;
+      if (timerEl) timerEl.innerText = timeText;
+      if (statusTextEl) statusTextEl.innerText = statusText;
     }
 
     openActiveAnalysisWindow() {
@@ -4628,16 +4750,24 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     }
 
     handleStateUpdate(state, event, data) {
-      // FIRESTORE_SYNCED event'i gelince UI'ı yenile (polling veya visibility senkronizasyonu)
+      // Sadece sekme değiştiyse renderCurrentView() içinde isTabChanged = true olarak işaretlenecek
       this.renderCurrentView();
       this.updateSidebarActiveState();
       this.updateNavbarAiStatus();
+      
+      const widget = document.getElementById("floating-pdf-analyzer-widget");
+      if (widget) {
+        widget.style.display = state.currentTab === "dashboard" ? "none" : "block";
+      }
     }
 
     renderCurrentView() {
       const state = store.getState();
       const contentArea = document.getElementById("main-content-area");
       if (!contentArea) return;
+      
+      const isTabChanged = this._lastRenderedTab !== state.currentTab;
+      this._lastRenderedTab = state.currentTab;
 
       let html = "";
       switch (state.currentTab) {
@@ -4652,6 +4782,13 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         default: html = renderDashboardView();
       }
       contentArea.innerHTML = html;
+      
+      if (!isTabChanged) {
+        const viewContainer = contentArea.querySelector(".view-container");
+        if (viewContainer) viewContainer.classList.remove("animate-fade-in");
+        const bulkCard = contentArea.querySelector(".dashboard-bulk-export-card");
+        if (bulkCard) bulkCard.classList.remove("animate-fade-in");
+      }
     }
 
     updateSidebarActiveState() {
@@ -4703,6 +4840,31 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       }
       this.isPdfModalMinimized = false;
       this.updateFloatingPdfAnalyzerWidget();
+    }
+
+    cancelPdfParsing() {
+      // PDF ayrıştırma verilerini sıfırla
+      this.isPdfParsing = false;
+      this.isPdfModalMinimized = false;
+      this.parsedStudentsList = [];
+      this.pdfAnalyzerLiveState = { isCompleted: false };
+      
+      if (this.pdfParsingTimerInterval) {
+        clearInterval(this.pdfParsingTimerInterval);
+        this.pdfParsingTimerInterval = null;
+      }
+      this.pdfParsingElapsedTime = "00:00";
+      
+      // Varsa açık olan modalı kapat
+      this.closeModal("pdf-upload-modal");
+      
+      // Floating widget'ı sil
+      const widget = document.getElementById("floating-pdf-analyzer-widget");
+      if (widget) widget.remove();
+      
+      // Dashboard'u eski "PDF Yükle" haline geri döndür
+      this.renderCurrentView();
+      showToast("İşlem iptal edildi ve silindi. Yeni bir PDF yükleyebilirsiniz.", "info");
     }
 
     openSingleAiAnalysisModal(student, chosenExams) {
@@ -4795,6 +4957,9 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         };
         document.body.appendChild(widget);
       }
+      
+      // Dashboard sayfasındayken popup'ı gizle
+      widget.style.display = store.getState().currentTab === "dashboard" ? "none" : "block";
 
       if (st.isCompleted) {
         widget.style.borderColor = "#16a34a";
@@ -4811,6 +4976,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation(); this.closest('#floating-pdf-analyzer-widget').remove()" title="Kapat">&times;</button>
           </div>
         `;
+        this.updateDashboardProgressDOM();
         return;
       }
 
@@ -4841,6 +5007,8 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           <span style="max-width: 140px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">👤 ${escapeHtml(studentName)}</span>
         </div>
       `;
+      
+      this.updateDashboardProgressDOM();
     }
 
     openUploadPdfModal() {
@@ -5067,6 +5235,17 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
 
       this.isPdfParsing = true;
       this.pdfParsingAbortController = new AbortController();
+      
+      this.pdfParsingStartTime = Date.now();
+      this.pdfParsingElapsedTime = "00:00";
+      if (this.pdfParsingTimerInterval) clearInterval(this.pdfParsingTimerInterval);
+      this.pdfParsingTimerInterval = setInterval(() => {
+        const diff = Math.floor((Date.now() - this.pdfParsingStartTime) / 1000);
+        const mins = String(Math.floor(diff / 60)).padStart(2, "0");
+        const secs = String(diff % 60).padStart(2, "0");
+        this.pdfParsingElapsedTime = `${mins}:${secs}`;
+        this.updateDashboardProgressDOM();
+      }, 1000);
 
       const useAi = document.getElementById("pdf-ai-toggle") ? document.getElementById("pdf-ai-toggle").checked : true;
       const aiConfig = store.getState().aiConfig;
@@ -5120,6 +5299,11 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
 
         this.parsedStudentsList = students;
         this.isPdfParsing = false;
+        
+        if (this.pdfParsingTimerInterval) {
+          clearInterval(this.pdfParsingTimerInterval);
+          this.pdfParsingTimerInterval = null;
+        }
 
         this.updateFloatingPdfAnalyzerWidget({
           curr: students.length,
@@ -5146,6 +5330,12 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         }
       } catch (err) {
         this.isPdfParsing = false;
+        
+        if (this.pdfParsingTimerInterval) {
+          clearInterval(this.pdfParsingTimerInterval);
+          this.pdfParsingTimerInterval = null;
+        }
+        
         this.updateFloatingPdfAnalyzerWidget();
         if (loader) loader.style.display = "none";
         if (dropZone) dropZone.style.display = "block";
@@ -5989,19 +6179,39 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       }
     }
 
+    onStudentSearchInput(val) {
+      this.studentSearchQuery = val;
+      this.filterStudents();
+    }
+
     filterStudents() {
-      const query = document.getElementById("student-search-input")?.value.toLowerCase().trim() || "";
-      const filtered = store.getState().students.filter((s) => s.adSoyad.toLowerCase().includes(query) || (s.numara && s.numara.includes(query)));
+      const query = (this.studentSearchQuery || "").toLowerCase().trim();
+      const gradeF = this.studentGradeFilter || "all";
+      const branchF = this.studentBranchFilter || "all";
+      
+      const filtered = store.getState().students.filter((s) => {
+         if (gradeF !== "all" && s.sinif !== gradeF) return false;
+         if (branchF !== "all" && s.sube !== branchF) return false;
+         return s.adSoyad.toLowerCase().includes(query) || (s.numara && String(s.numara).includes(query));
+      });
       const tbody = document.getElementById("students-tbody");
       if (tbody) tbody.innerHTML = renderStudentRows(filtered, store.getState().exams);
     }
 
-    filterStudentsByClass(classVal, btn) {
-      document.querySelectorAll(".filter-tags .filter-btn").forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      const filtered = store.getState().students.filter((s) => classVal === "all" || s.sinif === classVal);
-      const tbody = document.getElementById("students-tbody");
-      if (tbody) tbody.innerHTML = renderStudentRows(filtered, store.getState().exams);
+    filterStudentsByClass(classVal) {
+      this.studentGradeFilter = classVal;
+      this.studentBranchFilter = "all"; // Reset branch when class changes
+      
+      // We pass forceTabChange=true (or just manipulate the logic) so that the entire view re-renders with new branch chips, without fade-in
+      this._lastRenderedTab = null; 
+      this.renderCurrentView();
+      // Ensure focus is returned if needed, though clicking a button removes focus anyway.
+    }
+
+    filterStudentsByBranch(branchVal) {
+      this.studentBranchFilter = branchVal;
+      this._lastRenderedTab = null; 
+      this.renderCurrentView();
     }
 
     openAddExamModal() { this.openUploadPdfModal(); }

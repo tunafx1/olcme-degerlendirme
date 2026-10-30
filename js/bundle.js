@@ -91,18 +91,18 @@
         id: "gemini",
         name: "Google Gemini AI",
         models: [
-          { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash (Hızlı & Pedagojik)" },
-          { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro (Derin Analiz)" }
+          { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash (Hızlı & Pedagojik)" },
+          { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro (Derin Analiz)" }
         ],
-        defaultModel: "gemini-1.5-flash",
+        defaultModel: "gemini-2.5-flash",
         badge: "Popüler",
         keyPlaceholder: "AIzaSy..."
       },
       {
         id: "claude",
         name: "Anthropic Claude",
-        models: [{ id: "claude-3-5-sonnet-20241022", name: "Claude 3.5 Sonnet (Akıllı Değerlendirme)" }],
-        defaultModel: "claude-3-5-sonnet-20241022",
+        models: [{ id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5 (Akıllı Değerlendirme)" }, { id: "claude-haiku-5-5", name: "Claude Haiku 5.5 (Hızlı)" }],
+        defaultModel: "claude-sonnet-5-5",
         badge: "Gelişmiş",
         keyPlaceholder: "sk-ant-..."
       }
@@ -137,9 +137,9 @@
     openaiApiKey: "",
     openaiModel: "gpt-4o-mini",
     geminiApiKey: "",
-    geminiModel: "gemini-1.5-flash",
+    geminiModel: "gemini-2.5-flash",
     claudeApiKey: "",
-    claudeModel: "claude-3-5-sonnet-20241022",
+    claudeModel: "claude-sonnet-5-5",
     temperature: 0.7,
     simulationMode: false
   };
@@ -1459,6 +1459,7 @@
           console.warn(`[AI Servisi] ${provider} çağrısı uyarısı:`, err.message);
           rawResult = this.generateSimulatedAnalysis(student, exams);
           rawResult._fallbackUsed = true;
+          rawResult._errorMessage = err.message;
         }
       }
 
@@ -1571,6 +1572,27 @@
 
       aiResult.eksikKonular = allDeficienciesFromExams;
       return aiResult;
+    }
+
+    /**
+     * Rapora yazılacak sağlayıcı adı. Simülasyon / yedek motor kullanıldıysa gerçek sağlayıcı adı yazılmaz.
+     */
+    static getProviderLabel(aiConfig, result) {
+      if (result && result._fallbackUsed) return "Akıllı Pedagojik AI Motoru (yedek - AI çağrısı başarısız)";
+      if (result && result._isSimulated) return "Akıllı Pedagojik AI Motoru";
+      const provider = aiConfig?.provider || "openai";
+      if (provider === "openai") return `OpenAI (${aiConfig.openaiModel || "gpt-4o-mini"})`;
+      if (provider === "gemini") return `Google Gemini (${aiConfig.geminiModel || "gemini-2.5-flash"})`;
+      return `Anthropic Claude (${aiConfig.claudeModel || "claude-sonnet-5-5"})`;
+    }
+
+    /**
+     * AI çağrısı başarısız olup simülasyona düşüldüyse kullanıcıyı uyarır.
+     */
+    static warnIfFallback(result) {
+      if (result && result._fallbackUsed) {
+        showToast(`AI çağrısı başarısız oldu, yedek motor kullanıldı: ${String(result._errorMessage || "").slice(0, 160)}`, "warning", 9000);
+      }
     }
 
     static checkApiKey(provider, config) {
@@ -1862,7 +1884,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     }
 
     static async callGemini(promptText, config, abortSignal = null) {
-      const model = config.geminiModel || "gemini-1.5-flash";
+      const model = config.geminiModel || "gemini-2.5-flash";
       const apiKey = config.geminiApiKey;
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
@@ -1891,7 +1913,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     }
 
     static async callClaude(promptText, config, abortSignal = null) {
-      const model = config.claudeModel || "claude-3-5-sonnet-20241022";
+      const model = config.claudeModel || "claude-sonnet-5-5";
       const apiKey = config.claudeApiKey;
       const url = "https://api.anthropic.com/v1/messages";
 
@@ -1902,7 +1924,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           "Content-Type": "application/json",
           "x-api-key": apiKey,
           "anthropic-version": "2023-06-01",
-          "dangerously-allow-browser": "true"
+          "anthropic-dangerous-direct-browser-access": "true"
         },
         body: JSON.stringify({
           model: model,
@@ -3162,6 +3184,9 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           loaded.provider = loaded.provider || "openai";
           loaded.openaiApiKey = loaded.openaiApiKey || DEFAULT_AI_CONFIG.openaiApiKey;
           loaded.geminiApiKey = loaded.geminiApiKey || DEFAULT_AI_CONFIG.geminiApiKey;
+          // Kayıtlı eski (hizmet dışı) model kimliklerini güncelle
+          if (/^gemini-1\.5/.test(loaded.geminiModel || "")) loaded.geminiModel = DEFAULT_AI_CONFIG.geminiModel;
+          if (/^claude-3/.test(loaded.claudeModel || "")) loaded.claudeModel = DEFAULT_AI_CONFIG.claudeModel;
           return loaded;
         })(),
         firebaseConfig: this.loadFromStorage(APP_CONFIG.storageKeys.FIREBASE_CONFIG, DEFAULT_FIREBASE_CONFIG),
@@ -3990,7 +4015,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             <div class="form-group mt-4 p-3" style="background: var(--bg-main); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
               <div class="d-flex justify-between items-center mb-2">
                 <label class="form-label font-bold mb-0">🤖 Raporlama ve Program İçin Kullanılacak Yapay Zekâ:</label>
-                <span class="badge badge-primary font-bold">Seçili: ${aiConfig.provider === "openai" ? "OpenAI ChatGPT (GPT-4o Mini)" : aiConfig.provider === "gemini" ? "Google Gemini 1.5 Flash" : "Claude 3.5 Sonnet"}</span>
+                <span class="badge badge-primary font-bold">Seçili: ${aiConfig.provider === "openai" ? "OpenAI (" + (aiConfig.openaiModel || "gpt-4o-mini") + ")" : aiConfig.provider === "gemini" ? "Google Gemini (" + (aiConfig.geminiModel || "gemini-2.5-flash") + ")" : "Claude (" + (aiConfig.claudeModel || "claude-sonnet-5-5") + ")"}</span>
               </div>
               <div class="d-flex gap-3 flex-wrap">
                 <label class="btn btn-outline ${aiConfig.provider === "openai" ? "btn-primary" : ""}" style="cursor: pointer;" onclick="window.app.quickSetAiProvider('openai')">
@@ -3999,11 +4024,11 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
                 </label>
                 <label class="btn btn-outline ${aiConfig.provider === "gemini" ? "btn-primary" : ""}" style="cursor: pointer;" onclick="window.app.quickSetAiProvider('gemini')">
                   <input type="radio" name="quick-ai-choice" value="gemini" ${aiConfig.provider === "gemini" ? "checked" : ""} style="display: none;" />
-                  <span>🔵 Google Gemini 1.5 Flash</span>
+                  <span>🔵 Google Gemini 2.5 Flash</span>
                 </label>
                 <label class="btn btn-outline ${aiConfig.provider === "claude" ? "btn-primary" : ""}" style="cursor: pointer;" onclick="window.app.quickSetAiProvider('claude')">
                   <input type="radio" name="quick-ai-choice" value="claude" ${aiConfig.provider === "claude" ? "checked" : ""} style="display: none;" />
-                  <span>🟣 Anthropic Claude 3.5 Sonnet</span>
+                  <span>🟣 Anthropic Claude Sonnet 5.5</span>
                 </label>
               </div>
             </div>
@@ -4822,7 +4847,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const aiConfig = store.getState().aiConfig || {};
       const provider = aiConfig.provider || (aiConfig.geminiApiKey ? "gemini" : (aiConfig.openaiApiKey ? "openai" : "gemini"));
       const hasKey = AIService.checkApiKey(provider, aiConfig);
-      const activeEngineLabel = provider === "openai" ? `OpenAI (${aiConfig.openaiModel || 'gpt-4o-mini'})` : (provider === "gemini" ? `Google Gemini (${aiConfig.geminiModel || 'gemini-1.5-flash'})` : `Claude (${aiConfig.claudeModel || '3.5-sonnet'})`);
+      const activeEngineLabel = provider === "openai" ? `OpenAI (${aiConfig.openaiModel || 'gpt-4o-mini'})` : (provider === "gemini" ? `Google Gemini (${aiConfig.geminiModel || 'gemini-2.5-flash'})` : `Claude (${aiConfig.claudeModel || 'claude-sonnet-5-5'})`);
 
       this.uploadExamTargetMode = null;
       this.uploadTargetGrade = this.uploadTargetGrade || "all";
@@ -4984,7 +5009,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         else {
           const aiConfig = store.getState().aiConfig || {};
           const provider = aiConfig.provider || "gemini";
-          label.innerText = provider === "openai" ? `OpenAI (${aiConfig.openaiModel || 'gpt-4o-mini'})` : `Google Gemini (${aiConfig.geminiModel || 'gemini-1.5-flash'})`;
+          label.innerText = provider === "openai" ? `OpenAI (${aiConfig.openaiModel || 'gpt-4o-mini'})` : `Google Gemini (${aiConfig.geminiModel || 'gemini-2.5-flash'})`;
         }
       }
     }
@@ -5015,7 +5040,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         badge.innerText = "● API Anahtarı Hazır";
       }
       const label = document.getElementById("pdf-active-engine-label");
-      if (label) label.innerText = provider === "openai" ? "OpenAI (gpt-4o-mini)" : "Google Gemini (gemini-1.5-flash)";
+      if (label) label.innerText = provider === "openai" ? "OpenAI (gpt-4o-mini)" : "Google Gemini (gemini-2.5-flash)";
     }
 
     abortPdfParsing() {
@@ -5421,7 +5446,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             numara: student.numara,
             kurumId: state.institution.id,
             kullanilanSinavIdler: [exam.id],
-            aiSaglayici: state.aiConfig.provider === "openai" ? "OpenAI ChatGPT (GPT-4o Mini)" : "Google Gemini 1.5 Flash",
+            aiSaglayici: AIService.getProviderLabel(state.aiConfig, aiRes),
             olusturmaTarihi: new Date().toISOString(),
             createdAt: Date.now(),
             eksikKonular: aiRes.eksikKonular || [],
@@ -6666,7 +6691,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
 
       try {
         const aiResult = await AIService.analyzeExams(student, chosenExams, state.aiConfig, this.aiAbortController.signal);
-        const providerName = state.aiConfig.provider === "openai" ? "OpenAI ChatGPT (GPT-4o Mini)" : state.aiConfig.provider === "gemini" ? "Google Gemini 1.5 Flash" : "Anthropic Claude";
+        AIService.warnIfFallback(aiResult);
 
         const newReport = {
           id: generateId("rep"),
@@ -6676,7 +6701,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           numara: student.numara,
           kurumId: state.institution.id,
           kullanilanSinavIdler: chosenExams.map((e) => e.id),
-          aiSaglayici: aiResult._isSimulated ? "Akıllı Pedagojik AI Motoru" : providerName,
+          aiSaglayici: AIService.getProviderLabel(state.aiConfig, aiResult),
           olusturmaTarihi: new Date().toISOString(),
           createdAt: Date.now(),
           eksikKonular: aiResult.eksikKonular || [],

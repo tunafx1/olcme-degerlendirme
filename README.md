@@ -7,16 +7,16 @@ Kurumlar, okullar ve etüt merkezleri için geliştirilmiş, **kazanım bazlı �
 ## 🌟 Öne Çıkan Özellikler
 
 1. **Çoklu Sınav ve Kazanım Yönetimi:**
-   - **Kazanımlı Sınav Girişi:** MEB & ÖSYM standart müfredatı (Türkçe, Matematik, Fen, İnkılap, İngilizce, Din Kültürü vb.) ile kazanım bazında Doğru/Yanlış/Boş girişi.
-   - **Kazanımsız (Klasik) Sınav Girişi:** Hızlı ders bazlı net/puan hesaplama.
-   - **Excel & CSV İçe Aktarma:** Excel dosyalarını tek tıkla yükleyip otomatik kazanım tablosuna dönüştürme.
-   - **Çoklu Sınav Seçimi (Checkbox):** Birden fazla sınavı aynı anda seçip **karşılaştırmalı gelişim analizi** talep etme.
+   - **PDF Karne İçe Aktarma:** Tek veya 70+ öğrencilik toplu sınav sonuç PDF'i yüklenir; öğrenci, ders netleri, LGS puanı ve kazanımlar otomatik ayrıştırılır (isteğe bağlı AI desteği).
+   - **Sınav Yönetimi:** Aynı adlı sınavlar gruplanır; sınav birleştirme, yeniden adlandırma ve sınıf kademesi filtresi.
+   - **Çoklu Sınav Seçimi (Checkbox):** Birden fazla sınavı aynı anda seçip **karşılaştırmalı gelişim analizi** ve tekrar eden (kronik) kazanım hataları talep etme.
+   - **JSON Yedekleme:** Tüm verinin JSON olarak dışa/içe aktarımı.
 
 2. **Yapay Zekâ Entegrasyonu (Admin Panelinden Seçilebilir):**
-   - **Google Gemini API** (Gemini 1.5 Flash / Pro / 2.0 Flash)
+   - **Google Gemini API** (Gemini 2.5 Flash / Pro)
    - **OpenAI API** (GPT-4o / GPT-4o-mini)
-   - **Anthropic Claude API** (Claude 3.5 Sonnet / Haiku)
-   - **Yerleşik Pedagojik Simülasyon Motoru:** API anahtarı girilmediğinde bile çevrimdışı ve kesintisiz akıllı eksik konu analizi & haftalık çalışma programı üretimi.
+   - **Anthropic Claude API** (Claude Sonnet 5.5 / Haiku 5.5)
+   - **Yerleşik Pedagojik Simülasyon Motoru:** API anahtarı girilmediğinde veya AI çağrısı başarısız olduğunda devreye girer. Rapor, kullanılan motoru dürüstçe etiketler ve çağrı hatasında kullanıcı uyarılır.
 
 3. **Yüksek Çözünürlüklü Kurumsal PDF Karnesi:**
    - Kurum logosu, kurum kodu, antet ve dinamik marka renkleri.
@@ -53,7 +53,7 @@ npx serve .
 
 ## 🔑 API Anahtarları ve Yapılandırma
 
-API anahtarlarınızı doğrudan uygulama içindeki **"AI Sağlayıcı Ayarları"** ve **"Firebase Yapılandırması"** menülerinden girebilir veya sunucuya dağıtırken `.env` dosyasını kullanabilirsiniz.
+API anahtarlarını uygulama içindeki **"AI Sağlayıcı Ayarları"** ve **"Firebase Yapılandırması"** menülerinden girin. Uygulamada derleme adımı olmadığından `.env` dosyası okunmaz; anahtarlar tarayıcının `localStorage` alanında saklanır.
 
 ---
 

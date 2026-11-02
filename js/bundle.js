@@ -337,11 +337,37 @@
   // ==========================================
   // Vites denemeleri iki haftaya bölünür: bir hafta Sözel, diğer hafta Sayısal oturumu yapılır.
   // Örn: "Vites 6. Sınıf Sınav 1 Sözel 1" + "Vites 6. Sınıf Sınav 2 Sayısal 1" = 6. Sınıf Vites 1.
-  // Oturum adının sonundaki sayı (Sözel 1 / Sayısal 1) iki oturumu eşleştirir.
+  // Yükleme formunda girilen sınavlarda eşleştirme kayıttaki alanlarla yapılır:
+  //   sinavTuru: "vites", oturum: "sozel" | "sayisal", vitesGrupAdi: "6. Sınıf Vites 1", sinifDuzeyi: "6"
+  // Bu alanlar olmayan eski kayıtlarda oturum adının sonundaki sayı (Sözel 1 / Sayısal 1) eşleştirir.
   // İki oturum tek sınav gibi birleştirilerek analiz edilir; Vites netlerinde yanlış doğruyu götürmez.
   const VitesService = {
-    detect(sinavAdi) {
-      const name = String(sinavAdi || "").replace(/\s+/g, " ").trim();
+    oturumBilgisi(oturum) {
+      return {
+        oturum,
+        oturumAdi: oturum === "sayisal" ? "Sayısal" : "Sözel",
+        karsiOturumAdi: oturum === "sayisal" ? "Sözel" : "Sayısal"
+      };
+    },
+
+    /** Sınav kaydını (veya eski kayıtlar için sınav adını) inceler; Vites oturumu değilse null döner. */
+    detect(examOrName) {
+      if (examOrName && typeof examOrName === "object") {
+        if (examOrName.sinavTuru === "vites" && examOrName.oturum) {
+          const sinif = String(examOrName.sinifDuzeyi || "");
+          const grupAdi = (examOrName.vitesGrupAdi || examOrName.sinavAdi || "").trim();
+          return {
+            sinif,
+            ...this.oturumBilgisi(examOrName.oturum),
+            turNo: null,
+            grupKey: `vites|${sinif}|${grupAdi.toLocaleLowerCase("tr-TR")}`,
+            grupAdi
+          };
+        }
+        if (examOrName.sinavTuru) return null; // Formdan girilmiş Vites dışı sınav
+        examOrName = examOrName.sinavAdi;
+      }
+      const name = String(examOrName || "").replace(/\s+/g, " ").trim();
       if (!/vites/i.test(name)) return null;
       const oturumMatch = name.match(/(say[ıi]sal|s[öo]zel)\s*(\d+)?/i);
       if (!oturumMatch) return null;
@@ -351,17 +377,16 @@
       const sinif = sinifMatch ? sinifMatch[1] : "";
       return {
         sinif,
-        oturum,
-        oturumAdi: oturum === "sayisal" ? "Sayısal" : "Sözel",
-        karsiOturumAdi: oturum === "sayisal" ? "Sözel" : "Sayısal",
+        ...this.oturumBilgisi(oturum),
         turNo,
-        grupKey: `vites|${sinif}|${turNo}`,
+        // Formdan girilen kayıtlarla aynı anahtar: "Mevcut Sınava Ekle" ile eski bir Vites'e oturum eklenebilir
+        grupKey: `vites|${sinif}|${`${sinif ? sinif + ". Sınıf " : ""}Vites ${turNo}`.toLocaleLowerCase("tr-TR")}`,
         grupAdi: `${sinif ? sinif + ". Sınıf " : ""}Vites ${turNo}`
       };
     },
 
     isVitesExam(exam) {
-      return !!(exam && (exam.isVitesCombined || this.detect(exam.sinavAdi)));
+      return !!(exam && (exam.isVitesCombined || this.detect(exam)));
     },
 
     dersOturumu(dersAdi) {
@@ -369,11 +394,11 @@
     },
 
     findPartner(exam, allExams = []) {
-      const info = this.detect(exam?.sinavAdi);
+      const info = this.detect(exam);
       if (!info) return null;
       const candidates = allExams.filter((e) => {
         if (!e || e.id === exam.id || e.ogrenciId !== exam.ogrenciId) return false;
-        const other = this.detect(e.sinavAdi);
+        const other = this.detect(e);
         return other && other.grupKey === info.grupKey && other.oturum !== info.oturum;
       });
       if (candidates.length === 0) return null;
@@ -384,10 +409,10 @@
     withPartners(exams = [], allExams = []) {
       const result = [...exams];
       exams.forEach((exam) => {
-        const info = this.detect(exam?.sinavAdi);
+        const info = this.detect(exam);
         if (!info) return;
         const hasPartner = result.some((e) => {
-          const other = this.detect(e.sinavAdi);
+          const other = this.detect(e);
           return e.ogrenciId === exam.ogrenciId && other && other.grupKey === info.grupKey && other.oturum !== info.oturum;
         });
         if (!hasPartner) {
@@ -400,7 +425,7 @@
 
     /** Oturuma ait olmayan, hiç girilmemiş boş ders satırlarını (eski ayrıştırmalardan kalan) temizler. */
     cleanHalf(exam) {
-      const info = this.detect(exam?.sinavAdi);
+      const info = this.detect(exam);
       if (!info) return exam;
       const dersSonuclari = (exam.dersSonuclari || []).filter((d) => {
         const attempted = (Number(d.dogru) || 0) + (Number(d.yanlis) || 0) > 0;
@@ -441,14 +466,14 @@
       const used = new Set();
       exams.forEach((exam) => {
         if (!exam || used.has(exam.id)) return;
-        const info = this.detect(exam.sinavAdi);
+        const info = this.detect(exam);
         if (!info || exam.isVitesCombined) {
           result.push(exam);
           return;
         }
         const partner = exams.find((e) => {
           if (!e || used.has(e.id) || e.id === exam.id || e.ogrenciId !== exam.ogrenciId) return false;
-          const other = this.detect(e.sinavAdi);
+          const other = this.detect(e);
           return other && other.grupKey === info.grupKey && other.oturum !== info.oturum;
         });
         used.add(exam.id);
@@ -466,7 +491,7 @@
     puanText(exam) {
       if (!exam) return "-";
       if (exam.isVitesCombined) return exam.puanEtiketi || "-";
-      const info = this.detect(exam.sinavAdi);
+      const info = this.detect(exam);
       if (info && exam.puan) return `${info.oturumAdi}: ${exam.puan}`;
       return exam.puan || "-";
     }
@@ -800,7 +825,7 @@
 
       const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
       const totalPages = pdf.numPages;
-      const { useAi = true, aiConfig = null, abortSignal = null, concurrency = 8 } = options;
+      const { useAi = true, aiConfig = null, abortSignal = null, concurrency = 8, isVites = false } = options;
 
       // ==========================================
       // AŞAMA 1: TÜM SAYFALARI HIZLICA YEREL BELLEĞE AL (1-2 sn)
@@ -884,7 +909,7 @@
           pageStructuredText += `\n=== SOL SÜTUN KAZANIMLARI ===\n` + leftLines.join("\n");
           pageStructuredText += `\n=== SAĞ SÜTUN KAZANIMLARI ===\n` + rightLines.join("\n");
 
-          const localParsed = PDFParserService.parseTurkishExamDocument(pageStructuredText, fullPageRawLines, allPageItems);
+          const localParsed = PDFParserService.parseTurkishExamDocument(pageStructuredText, fullPageRawLines, allPageItems, { isVites });
 
           return {
             pageNum: pNum,
@@ -932,7 +957,7 @@
           prevDoc.pageStructuredText += `\n\n=== SAYFA ${pageData.pageNum} (KAZANIMLAR VE DEVAM TABLOLARI) ===\n` + pageData.pageStructuredText;
 
           // Birleştirilmiş tam metin ile yerel ayrıştırmayı yeniden yap
-          prevDoc.localParsed = PDFParserService.parseTurkishExamDocument(prevDoc.pageStructuredText, prevDoc.fullPageRawLines, prevDoc.allPageItems);
+          prevDoc.localParsed = PDFParserService.parseTurkishExamDocument(prevDoc.pageStructuredText, prevDoc.fullPageRawLines, prevDoc.allPageItems, { isVites });
         } else {
           // Yeni öğrenci belgesi
           studentDocuments.push({
@@ -974,7 +999,7 @@
           const docData = studentDocuments[currentIndex];
           let finalParsed = docData.localParsed;
           // Vites karneleri koordinat tabanlı yerel ayrıştırıcıyla birebir okunur; AI ayıklamasına gerek yoktur.
-          const isVitesDoc = !!VitesService.detect(docData.localParsed?.sinav?.sinavAdi);
+          const isVitesDoc = isVites || !!VitesService.detect(docData.localParsed?.sinav?.sinavAdi);
 
           try {
             const aiParsed = isVitesDoc ? null : await AIService.extractExamDataFromPdfText(docData.pageStructuredText, aiConfig, abortSignal);
@@ -1247,7 +1272,7 @@
       return null;
     }
 
-    static parseTurkishExamDocument(text, fullPageRawLines = [], allPageItems = []) {
+    static parseTurkishExamDocument(text, fullPageRawLines = [], allPageItems = [], hints = {}) {
       const lines = text.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
 
       let adSoyad = "";
@@ -1286,7 +1311,7 @@
       const examMatch = vitesNameMatch ? null : text.match(/(?:Sınav\s*Adı|Sınav)[:\s]+([^\n]+?)(?=\s+Kitapçık|\s+Alan|\s+Sınav\s*Tarihi|\s+Tarih|\n|$)/i);
       if (vitesNameMatch) sinavAdi = vitesNameMatch[1].replace(/(\d)(?=[A-Za-zÇĞİÖŞÜçğıöşü])/g, "$1 ").replace(/\s+/g, " ").trim();
       else if (examMatch) sinavAdi = examMatch[1].trim();
-      const vitesInfo = VitesService.detect(sinavAdi);
+      const vitesInfo = VitesService.detect(sinavAdi) || (hints.isVites ? { oturum: null } : null);
 
       const dateMatch = text.match(/(?:Sınav\s*Tarihi|Tarihi?)[:\s]+(\d{2}[./-]\d{2}[./-]\d{4})/i);
       if (dateMatch) {
@@ -1954,7 +1979,7 @@
       let examSummary = sortedExams
         .map((exam, index) => {
           const verifiedNet = getVerifiedExamTotalNet(exam);
-          const halfInfo = !exam.isVitesCombined ? VitesService.detect(exam.sinavAdi) : null;
+          const halfInfo = !exam.isVitesCombined ? VitesService.detect(exam) : null;
           let details;
           if (exam.isVitesCombined) {
             const oturumText = exam.oturumlar.map((o) => `${o.oturumAdi} oturumu: "${o.sinavAdi}" (Tarih: ${o.tarih}, Net: ${o.toplamNet}, Puan: ${o.puan})`).join(" + ");
@@ -3173,13 +3198,13 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
                 <div class="d-flex gap-2">
                   ${exam.isVitesCombined
                     ? exam.oturumlar.map((o) => `<span class="badge badge-warning font-bold" style="font-size: 11px;">${o.oturumAdi} Puanı: <strong>${o.puan}</strong></span>`).join("")
-                    : VitesService.detect(exam.sinavAdi)
-                      ? `<span class="badge badge-warning font-bold" style="font-size: 11px;">${VitesService.detect(exam.sinavAdi).oturumAdi} Puanı: <strong>${exam.puan || "-"}</strong></span>`
+                    : VitesService.detect(exam)
+                      ? `<span class="badge badge-warning font-bold" style="font-size: 11px;">${VitesService.detect(exam).oturumAdi} Puanı: <strong>${exam.puan || "-"}</strong></span>`
                       : `<span class="badge badge-warning font-bold" style="font-size: 11px;">LGS: <strong>${exam.puan || "-"}</strong></span>`}
                   <span class="badge badge-primary font-bold" style="font-size: 11px;">Toplam Net: <strong>${getVerifiedExamTotalNet(exam)} Net</strong></span>
                 </div>
               </div>
-              ${!exam.isVitesCombined && VitesService.detect(exam.sinavAdi) ? `<div style="font-size: 10.5px; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 4px; padding: 4px 8px; margin-bottom: 6px;">⏳ Bu Vites denemesinin ${VitesService.detect(exam.sinavAdi).karsiOturumAdi} oturumu henüz yüklenmedi; değerlendirme yalnızca ${VitesService.detect(exam.sinavAdi).oturumAdi} oturumuna dayanır.</div>` : ""}
+              ${!exam.isVitesCombined && VitesService.detect(exam) ? `<div style="font-size: 10.5px; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 4px; padding: 4px 8px; margin-bottom: 6px;">⏳ Bu Vites denemesinin ${VitesService.detect(exam).karsiOturumAdi} oturumu henüz yüklenmedi; değerlendirme yalnızca ${VitesService.detect(exam).oturumAdi} oturumuna dayanır.</div>` : ""}
               <table class="report-table" style="font-size: 12px;">
                 <thead><tr><th>Ders</th>${exam.isVitesCombined ? "<th>Oturum</th>" : ""}<th>Doğru</th><th>Yanlış</th><th>Boş</th><th>Net</th><th>Başarı %</th></tr></thead>
                 <tbody>
@@ -4299,7 +4324,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const sortedStudentExams = [...group.exams].sort((a, b) => (Number(b.toplamNet) || 0) - (Number(a.toplamNet) || 0));
 
       // Vites: eş oturumu (Sözel ↔ Sayısal) yüklenmiş öğrenci sayısı
-      const vitesInfo = VitesService.detect(group.sinavAdi);
+      const vitesInfo = VitesService.detect(group.exams[0]);
       const vitesPairedCount = vitesInfo ? group.exams.filter((ex) => VitesService.findPartner(ex, state.exams)).length : 0;
       const vitesBadgeHtml = vitesInfo ? `<span class="badge badge-primary" style="font-size: 10.5px;" title="İki oturumlu Vites denemesi: Sözel + Sayısal oturumları birleştirilerek tek sınav olarak değerlendirilir">🔀 ${escapeHtml(vitesInfo.grupAdi)} • ${vitesInfo.oturumAdi} Oturumu</span>` : "";
       const vitesStatusHtml = !vitesInfo ? "" : vitesPairedCount > 0
@@ -4449,12 +4474,12 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
                 ${studentExams.length === 0 ? `<div class="empty-state p-4"><p>Bu öğrenciye ait kayıtlı sınav bulunmuyor.</p></div>` : studentExams.map((exam) => `
                   <label class="ai-exam-select-item active">
                     <input type="checkbox" name="ai-selected-exams" value="${exam.id}" checked onchange="this.parentElement.classList.toggle('active', this.checked)" />
-                    <div class="ai-exam-item-details"><div class="font-bold">${exam.sinavAdi} ${VitesService.detect(exam.sinavAdi) ? `<span class="badge badge-primary" style="font-size: 10.5px;">🔀 Vites ${VitesService.detect(exam.sinavAdi).oturumAdi}${VitesService.findPartner(exam, exams) ? " • eşi var" : " • eşi yok"}</span>` : ""}</div><div class="text-muted" style="font-size: 12px;">Tarih: ${formatDate(exam.tarih)} • Tür: ${exam.tur === "kazanimli" ? "Kazanımlı" : "Kazanımsız"} ${exam.puan ? `• Puan: ${exam.puan}` : ""}</div></div>
+                    <div class="ai-exam-item-details"><div class="font-bold">${exam.sinavAdi} ${VitesService.detect(exam) ? `<span class="badge badge-primary" style="font-size: 10.5px;">🔀 Vites ${VitesService.detect(exam).oturumAdi}${VitesService.findPartner(exam, exams) ? " • eşi var" : " • eşi yok"}</span>` : ""}</div><div class="text-muted" style="font-size: 12px;">Tarih: ${formatDate(exam.tarih)} • Tür: ${exam.tur === "kazanimli" ? "Kazanımlı" : "Kazanımsız"} ${exam.puan ? `• Puan: ${exam.puan}` : ""}</div></div>
                     <div class="ai-exam-item-net"><span class="badge badge-primary font-bold">${exam.toplamNet || "-"} Net</span></div>
                   </label>
                 `).join("")}
               </div>
-              ${studentExams.some((e) => VitesService.detect(e.sinavAdi)) ? `<div style="margin-top: 8px; font-size: 12px; color: #1e40af; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 8px 10px;">🔀 <strong>Vites:</strong> Seçilen Vites oturumu, aynı Vites'in diğer oturumuyla (Sözel ↔ Sayısal) otomatik birleştirilir ve iki oturumun toplamı tek sınav olarak analiz edilir. Etüt programı iki oturumun ortak eksiklerinden hazırlanır.</div>` : ""}
+              ${studentExams.some((e) => VitesService.detect(e)) ? `<div style="margin-top: 8px; font-size: 12px; color: #1e40af; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 8px 10px;">🔀 <strong>Vites:</strong> Seçilen Vites oturumu, aynı Vites'in diğer oturumuyla (Sözel ↔ Sayısal) otomatik birleştirilir ve iki oturumun toplamı tek sınav olarak analiz edilir. Etüt programı iki oturumun ortak eksiklerinden hazırlanır.</div>` : ""}
             </div>
 
             <!-- AI SAĞLAYICI SEÇİMİ -->
@@ -5390,7 +5415,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const activeEngineLabel = provider === "openai" ? `OpenAI (${aiConfig.openaiModel || 'gpt-4o-mini'})` : (provider === "gemini" ? `Google Gemini (${aiConfig.geminiModel || 'gemini-2.5-flash'})` : `Claude (${aiConfig.claudeModel || 'claude-sonnet-5-5'})`);
 
       this.uploadExamTargetMode = null;
-      this.uploadTargetGrade = this.uploadTargetGrade || "all";
+      const today = new Date().toISOString().split("T")[0];
 
       const modalHtml = `
         <div class="modal-backdrop" id="pdf-upload-modal" onclick="if(event.target === this && !window.app.isBatchProcessing && !window.app.isPdfParsing) window.app.closeModal('pdf-upload-modal')">
@@ -5453,54 +5478,68 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
                 </div>
               </div>
 
-              <!-- SINAV UYGULAMA HEDEFİ SEÇİMİ (YENİ SINAV VS MEVCUT SINAV) -->
+              <!-- SINAV BİLGİLERİ: ad, tür, sınıf düzeyi, tarih ve Vites oturumu kullanıcı tarafından belirlenir (PDF'ten / AI'dan okunmaz) -->
               <div class="card p-3 mb-3" style="background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: var(--radius-md);">
                 <div class="d-flex justify-between items-center flex-wrap gap-2 mb-2">
-                  <label class="form-label font-bold mb-0" style="font-size: 13.5px; color: #0f172a;">🎯 Sınav Uygulama Hedefi:</label>
-                  <span class="badge badge-secondary" style="font-size: 11px;">Mükerrer veya farklı isim oluşmasını engeller</span>
+                  <label class="form-label font-bold mb-0" style="font-size: 13.5px; color: #0f172a;">📝 Sınav Bilgileri:</label>
+                  <span class="badge badge-secondary" style="font-size: 11px;">Sınav adı, tarihi ve sınıf düzeyi sizin girdiğiniz bilgilerle kaydedilir</span>
                 </div>
                 <div class="d-flex gap-2 flex-wrap mb-2">
                   <button type="button" id="btn-target-mode-new" class="btn btn-sm btn-outline font-bold" onclick="window.app.setUploadExamTargetMode('new')">
-                    ✨ Yeni Sınav Olarak Ekle (AI Otomatik İsimlendirsin)
+                    ✨ Yeni Sınav Oluştur
                   </button>
                   <button type="button" id="btn-target-mode-existing" class="btn btn-sm btn-outline font-bold" onclick="window.app.setUploadExamTargetMode('existing')">
-                    📂 Mevcut Sınav Uygulamasına Dahil Et
+                    📂 Mevcut Sınava Ekle (örn. Vites'in ikinci oturumu)
                   </button>
                 </div>
 
-                <!-- Mevcut Sınav Seçim Kutusu -->
-                <div id="existing-exam-selection-box" style="display: none; background: #f8fafc; padding: 12px 16px; border-radius: 6px; border: 1px solid #e2e8f0; margin-top: 8px;">
+                <div id="upload-exam-form" style="display: none; background: #f8fafc; padding: 12px 16px; border-radius: 6px; border: 1px solid #e2e8f0; margin-top: 8px;">
                   <div class="grid-2-col" style="gap: 12px;">
                     <div class="form-group mb-0">
-                      <label class="form-label font-bold" style="font-size: 12px; color: #334155;">1. Sınıf Seviyesi Seçiniz:</label>
-                      <select id="upload-target-grade-select" class="form-control font-bold" style="font-size: 13px;" onchange="window.app.onUploadTargetGradeChange(this.value)">
-                        <option value="all" ${this.uploadTargetGrade === 'all' ? 'selected' : ''}>Tüm Kademeler</option>
-                        <option value="5" ${this.uploadTargetGrade === '5' ? 'selected' : ''}>5. Sınıf</option>
-                        <option value="6" ${this.uploadTargetGrade === '6' ? 'selected' : ''}>6. Sınıf</option>
-                        <option value="7" ${this.uploadTargetGrade === '7' ? 'selected' : ''}>7. Sınıf</option>
-                        <option value="8" ${this.uploadTargetGrade === '8' ? 'selected' : ''}>8. Sınıf (LGS)</option>
+                      <label class="form-label font-bold" style="font-size: 12px; color: #334155;">Sınıf Düzeyi *</label>
+                      <select id="upload-meta-grade" class="form-control font-bold" style="font-size: 13px;" onchange="window.app.onUploadMetaChange()">
+                        <option value="">Seçiniz...</option>
+                        ${["5", "6", "7", "8"].map((g) => `<option value="${g}" ${this.uploadLastGrade === g ? "selected" : ""}>${g}. Sınıf${g === "8" ? " (LGS)" : ""}</option>`).join("")}
                       </select>
                     </div>
                     <div class="form-group mb-0">
-                      <label class="form-label font-bold" style="font-size: 12px; color: #334155;">2. Dahil Edilecek Sınavı Seçiniz:</label>
-                      <select id="upload-target-exam-select" class="form-control font-bold text-primary" style="font-size: 13px;">
-                        ${this.renderTargetExamOptions(this.uploadTargetGrade || 'all')}
+                      <label class="form-label font-bold" style="font-size: 12px; color: #334155;">Sınav Türü *</label>
+                      <select id="upload-meta-type" class="form-control font-bold" style="font-size: 13px;" onchange="window.app.onUploadMetaChange()">
+                        <option value="deneme" ${this.uploadLastType !== "vites" ? "selected" : ""}>Deneme / LGS (tek oturum)</option>
+                        <option value="vites" ${this.uploadLastType === "vites" ? "selected" : ""}>Vites (Sözel + Sayısal, iki oturum)</option>
                       </select>
                     </div>
+                    <div class="form-group mb-0" id="upload-meta-name-group">
+                      <label class="form-label font-bold" style="font-size: 12px; color: #334155;" id="upload-meta-name-label">Sınav Adı *</label>
+                      <input type="text" id="upload-meta-name" class="form-control font-bold" style="font-size: 13px;" placeholder="örn. 8. Sınıf LGS Deneme 3" />
+                    </div>
+                    <div class="form-group mb-0" id="upload-meta-existing-group" style="display: none;">
+                      <label class="form-label font-bold" style="font-size: 12px; color: #334155;">Eklenecek Sınav *</label>
+                      <select id="upload-meta-existing" class="form-control font-bold text-primary" style="font-size: 13px;" onchange="window.app.onUploadExistingExamChange()"></select>
+                    </div>
+                    <div class="form-group mb-0" id="upload-meta-oturum-group" style="display: none;">
+                      <label class="form-label font-bold" style="font-size: 12px; color: #334155;">Bu PDF'in Oturumu *</label>
+                      <select id="upload-meta-oturum" class="form-control font-bold" style="font-size: 13px;">
+                        <option value="">Seçiniz...</option>
+                        <option value="sozel">Sözel (Türkçe, Sosyal, Din, İngilizce)</option>
+                        <option value="sayisal">Sayısal (Matematik, Fen)</option>
+                      </select>
+                    </div>
+                    <div class="form-group mb-0">
+                      <label class="form-label font-bold" style="font-size: 12px; color: #334155;">Sınav Tarihi *</label>
+                      <input type="date" id="upload-meta-date" class="form-control font-bold" style="font-size: 13px;" value="${today}" />
+                    </div>
                   </div>
-                  <div class="text-muted mt-2 d-flex items-center gap-1" style="font-size: 11.5px;">
-                    <span>ℹ️</span>
-                    <span>Yüklenecek PDF içerisindeki tüm öğrenciler otomatik olarak seçilen bu sınav uygulaması içine dahil edilir.</span>
-                  </div>
+                  <div id="upload-meta-hint" class="text-muted mt-2" style="font-size: 11.5px;"></div>
                 </div>
               </div>
 
-              <!-- HEDEF SEÇİLMEDEN ÖNCE GÖRÜNEN YÖNLENDİRME KUTUSU -->
+              <!-- MOD SEÇİLMEDEN ÖNCE GÖRÜNEN YÖNLENDİRME KUTUSU -->
               <div id="pdf-target-unselected-hint" class="p-4 text-center card mb-3 animate-fade-in" style="background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: var(--radius-md);">
                 <div style="font-size: 26px; margin-bottom: 6px;">👆</div>
-                <h4 class="font-bold" style="font-size: 15px; color: #1e293b; margin: 0 0 6px 0;">Lütfen Önce Sınav Hedefini Seçiniz</h4>
+                <h4 class="font-bold" style="font-size: 15px; color: #1e293b; margin: 0 0 6px 0;">Lütfen Önce Sınav Bilgilerini Giriniz</h4>
                 <p class="text-muted" style="font-size: 13px; margin: 0;">
-                  PDF yükleme alanının açılması için yukarıdaki <strong>"✨ Yeni Sınav Olarak Ekle"</strong> veya <strong>"📂 Mevcut Sınav Uygulamasına Dahil Et"</strong> butonlarından birine tıklayınız.
+                  PDF yükleme alanının açılması için yukarıdan <strong>"✨ Yeni Sınav Oluştur"</strong> veya <strong>"📂 Mevcut Sınava Ekle"</strong> seçeneğini seçip sınav bilgilerini doldurunuz.
                 </p>
               </div>
 
@@ -5593,6 +5632,11 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
 
     async handlePdfFileUpload(file) {
       if (!file) return;
+      // Sınav adı / türü / sınıf / tarih formdan gelir; eksikse ayrıştırma başlamaz
+      const uploadMeta = this.readUploadExamMeta();
+      const fileInput = document.getElementById("pdf-file-input");
+      if (fileInput) fileInput.value = "";
+      if (!uploadMeta) return;
       const loader = document.getElementById("pdf-parsing-loader");
       const dropZone = document.getElementById("pdf-drop-zone-box");
       const preview = document.getElementById("pdf-parsed-preview");
@@ -5657,17 +5701,18 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         }, {
           useAi,
           aiConfig,
-          abortSignal: this.pdfParsingAbortController.signal
+          abortSignal: this.pdfParsingAbortController.signal,
+          isVites: uploadMeta.isVites
         });
 
-        if (this.uploadExamTargetMode === "existing") {
-          const targetExamName = document.getElementById("upload-target-exam-select")?.value;
-          if (targetExamName) {
-            students.forEach((st) => {
-              if (st.sinav) st.sinav.sinavAdi = targetExamName;
-            });
+        // Önizlemede formdaki sınav bilgileri ve sınıf düzeyi gösterilir (kayıtta form yeniden okunur)
+        students.forEach((st) => {
+          if (st.sinav) Object.assign(st.sinav, uploadMeta.examFields);
+          if (st.ogrenci) {
+            st.ogrenci.sinif = uploadMeta.grade;
+            st.ogrenci.sube = this.normalizeUploadSube(st.ogrenci.sube, uploadMeta.grade);
           }
-        }
+        });
 
         this.parsedStudentsList = students;
         this.isPdfParsing = false;
@@ -5744,10 +5789,11 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
               ${isAi ? `<span class="badge badge-primary font-bold" style="background:#eff6ff; color:#2563eb; border:1px solid #bfdbfe;">🤖 AI ile Kusursuz Ayrıştırıldı</span>` : `<span class="badge badge-secondary">⚡ Yerel Motor</span>`}
             </div>
             <div class="d-flex gap-2">
-              ${sinav.puan ? `<span class="badge badge-warning font-bold">LGS Puanı: ${sinav.puan}</span>` : ""}
+              ${sinav.puan ? `<span class="badge badge-warning font-bold">${VitesService.detect(sinav) ? VitesService.detect(sinav).oturumAdi : "LGS"} Puanı: ${sinav.puan}</span>` : ""}
               <span class="badge badge-primary font-bold">Toplam Net: ${sinav.toplamNet} Net</span>
             </div>
           </div>
+          <div class="text-muted mb-2" style="font-size: 12.5px;">Kaydedilecek sınav: <strong>${escapeHtml(sinav.sinavAdi || "-")}</strong> • ${sinav.sinifDuzeyi || "-"}. Sınıf • ${formatDate(sinav.tarih)}</div>
           <div class="grid-3-col">
             <div class="form-group"><label class="form-label">Öğrenci Adı Soyadı:</label><input type="text" class="form-control font-bold" value="${escapeHtml(ogrenci.adSoyad)}" oninput="window.app.parsedStudentsList[0].ogrenci.adSoyad = this.value" /></div>
             <div class="form-group"><label class="form-label">Sınıf / Şube:</label><input type="text" class="form-control" value="${escapeHtml(ogrenci.sinif + '. Sınıf (' + ogrenci.sube + ')')}" oninput="window.app.parsedStudentsList[0].ogrenci.sube = this.value" /></div>
@@ -5788,13 +5834,13 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const avgNet = (totalNetSum / students.length).toFixed(1);
 
       // Vites: bu oturumun eşi (Sözel ↔ Sayısal) sistemde kayıtlı mı?
-      const vitesInfo = VitesService.detect(students[0]?.sinav?.sinavAdi);
+      const vitesInfo = VitesService.detect(students[0]?.sinav);
       let vitesBannerHtml = "";
       if (vitesInfo) {
         const state = store.getState();
         const pairedCount = students.filter((item) => {
           const st = state.students.find((s) => s.adSoyad.toLowerCase().trim() === item.ogrenci.adSoyad.toLowerCase().trim() || (s.numara && s.numara === item.ogrenci.numara));
-          return st && VitesService.findPartner({ id: "__yeni__", ogrenciId: st.id, sinavAdi: item.sinav.sinavAdi }, state.exams);
+          return st && VitesService.findPartner({ ...item.sinav, id: "__yeni__", ogrenciId: st.id }, state.exams);
         }).length;
         vitesBannerHtml = `
           <div class="card p-3 mb-3" style="background: #eff6ff; border: 1px solid #bfdbfe; color: #1e3a8a; font-size: 13px;">
@@ -5811,6 +5857,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             <div>
               <span class="badge badge-success font-bold mr-2" style="font-size: 13px; padding: 6px 12px;">✓ Toplu PDF Başarıyla Ayrıştırıldı</span>
               <strong style="font-size: 16px; color: #0f172a;">${students.length} Öğrenci Karnesi Tespit Edildi</strong>
+              <div class="text-muted" style="font-size: 12.5px; margin-top: 4px;">Kaydedilecek sınav: <strong>${escapeHtml(students[0]?.sinav?.sinavAdi || "-")}</strong> • ${students[0]?.sinav?.sinifDuzeyi || "-"}. Sınıf • ${formatDate(students[0]?.sinav?.tarih)}</div>
             </div>
             <div class="d-flex gap-2">
               <span class="badge badge-primary font-bold">Ortalama Net: ${avgNet} Net</span>
@@ -5905,19 +5952,14 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const item = this.parsedStudentsList[0];
       if (!item) return;
       const { ogrenci, sinav } = item;
+      const meta = this.readUploadExamMeta();
+      if (!meta) return;
 
-      let targetExamName = null;
-      if (this.uploadExamTargetMode === "existing") {
-        targetExamName = document.getElementById("upload-target-exam-select")?.value;
-      }
+      const { student, isNew, changed } = this.resolveUploadedStudent(ogrenci, meta);
+      if (isNew) store.addStudent(student);
+      else if (changed) store.addBatchStudents([student]);
 
-      let student = store.getState().students.find((s) => s.adSoyad.toLowerCase().trim() === ogrenci.adSoyad.toLowerCase().trim() || (s.numara && s.numara === ogrenci.numara));
-      if (!student) {
-        student = { id: generateId("ogr"), adSoyad: ogrenci.adSoyad, sinif: ogrenci.sinif || "8", sube: ogrenci.sube || "8/A", numara: ogrenci.numara || "100", olusturmaTarihi: sinav.tarih || new Date().toISOString().split("T")[0] };
-        store.addStudent(student);
-      }
-
-      const exam = { id: generateId("snv"), ogrenciId: student.id, kurumId: store.getState().institution.id, sinavAdi: targetExamName || sinav.sinavAdi || "8. Sınıf Deneme Sınavı", tarih: sinav.tarih || new Date().toISOString().split("T")[0], tur: "kazanimli", toplamSoru: sinav.toplamSoru || 90, toplamNet: sinav.toplamNet, puan: sinav.puan, dersSonuclari: sinav.dersSonuclari };
+      const exam = this.buildUploadedExamRecord(student, sinav, meta);
       store.addExam(exam);
 
       this.closeModal("pdf-upload-modal");
@@ -5933,21 +5975,17 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const studentsList = this.parsedStudentsList;
       if (!studentsList || studentsList.length === 0) return;
 
-      let targetExamName = null;
-      if (this.uploadExamTargetMode === "existing") {
-        targetExamName = document.getElementById("upload-target-exam-select")?.value;
-      }
+      const meta = this.readUploadExamMeta();
+      if (!meta) return;
 
       const newStudents = [];
       const newExams = [];
 
       studentsList.forEach((item) => {
-        let student = store.getState().students.find((s) => s.adSoyad.toLowerCase().trim() === item.ogrenci.adSoyad.toLowerCase().trim() || (s.numara && s.numara === item.ogrenci.numara));
-        if (!student) {
-          student = { id: generateId("ogr"), adSoyad: item.ogrenci.adSoyad, sinif: item.ogrenci.sinif || "8", sube: item.ogrenci.sube || "8/A", numara: item.ogrenci.numara || "100", olusturmaTarihi: item.sinav.tarih || new Date().toISOString().split("T")[0] };
-          newStudents.push(student);
-        }
-        newExams.push({ id: generateId("snv"), ogrenciId: student.id, kurumId: store.getState().institution.id, sinavAdi: targetExamName || item.sinav.sinavAdi, tarih: item.sinav.tarih, tur: "kazanimli", toplamSoru: item.sinav.toplamSoru || 90, toplamNet: item.sinav.toplamNet, puan: item.sinav.puan, dersSonuclari: item.sinav.dersSonuclari });
+        // Yeni öğrenciler ve sınıf/şubesi değişen mevcut öğrenciler birlikte kaydedilir
+        const { student, isNew, changed } = this.resolveUploadedStudent(item.ogrenci, meta);
+        if (isNew || changed) newStudents.push(student);
+        newExams.push(this.buildUploadedExamRecord(student, item.sinav, meta));
       });
 
       store.addBatchStudents(newStudents);
@@ -5962,10 +6000,8 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const studentsList = this.parsedStudentsList;
       if (!studentsList || studentsList.length === 0) return;
 
-      let targetExamName = null;
-      if (this.uploadExamTargetMode === "existing") {
-        targetExamName = document.getElementById("upload-target-exam-select")?.value;
-      }
+      const meta = this.readUploadExamMeta();
+      if (!meta) return;
 
       this.isBatchProcessing = true;
       this.isBatchCancelled = false;
@@ -6010,13 +6046,11 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           message: `${item.ogrenci.adSoyad} için haftalık program üretiliyor...`
         });
 
-        let student = store.getState().students.find((s) => s.adSoyad.toLowerCase().trim() === item.ogrenci.adSoyad.toLowerCase().trim() || (s.numara && s.numara === item.ogrenci.numara));
-        if (!student) {
-          student = { id: generateId("ogr"), adSoyad: item.ogrenci.adSoyad, sinif: item.ogrenci.sinif || "8", sube: item.ogrenci.sube || "8/A", numara: item.ogrenci.numara || "100", olusturmaTarihi: item.sinav.tarih || new Date().toISOString().split("T")[0] };
-          store.addStudent(student);
-        }
+        const { student, isNew, changed } = this.resolveUploadedStudent(item.ogrenci, meta);
+        if (isNew) store.addStudent(student);
+        else if (changed) store.addBatchStudents([student]);
 
-        const exam = { id: generateId("snv"), ogrenciId: student.id, kurumId: state.institution.id, sinavAdi: targetExamName || item.sinav.sinavAdi, tarih: item.sinav.tarih, tur: "kazanimli", toplamSoru: item.sinav.toplamSoru || 90, toplamNet: item.sinav.toplamNet, puan: item.sinav.puan, dersSonuclari: item.sinav.dersSonuclari };
+        const exam = this.buildUploadedExamRecord(student, item.sinav, meta);
         store.addExam(exam);
 
         try {
@@ -6895,7 +6929,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
 
     setUploadExamTargetMode(mode) {
       this.uploadExamTargetMode = mode;
-      const box = document.getElementById("existing-exam-selection-box");
+      const form = document.getElementById("upload-exam-form");
       const newBtn = document.getElementById("btn-target-mode-new");
       const existingBtn = document.getElementById("btn-target-mode-existing");
       const hint = document.getElementById("pdf-target-unselected-hint");
@@ -6903,49 +6937,169 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
 
       if (hint) hint.style.display = "none";
       if (dropZone) dropZone.style.display = "block";
+      if (form) form.style.display = "block";
 
-      if (box) box.style.display = mode === "existing" ? "block" : "none";
       if (newBtn && existingBtn) {
-        if (mode === "existing") {
-          newBtn.className = "btn btn-sm btn-outline font-bold";
-          existingBtn.className = "btn btn-sm btn-primary shadow-sm font-bold";
+        newBtn.className = mode === "new" ? "btn btn-sm btn-primary shadow-sm font-bold" : "btn btn-sm btn-outline font-bold";
+        existingBtn.className = mode === "existing" ? "btn btn-sm btn-primary shadow-sm font-bold" : "btn btn-sm btn-outline font-bold";
+      }
+      this.onUploadMetaChange();
+    }
+
+    /** Mevcut sınavlar: Vites için oturumları birlikte gruplanır, diğerleri sınav adına göre listelenir. */
+    getUploadExamChoices(grade, type) {
+      const state = store.getState();
+      const examGrade = (ex) => {
+        const st = state.students.find((s) => s.id === ex.ogrenciId);
+        return String(ex.sinifDuzeyi || (st && st.sinif) || "").match(/\d+/)?.[0] || "";
+      };
+      const choices = new Map();
+      state.exams.forEach((ex) => {
+        const info = VitesService.detect(ex);
+        if (type === "vites") {
+          if (!info || (grade && (info.sinif || examGrade(ex)) !== grade)) return;
+          if (!choices.has(info.grupKey)) {
+            choices.set(info.grupKey, { key: info.grupKey, label: info.grupAdi, vitesGrupAdi: info.grupAdi, oturumlar: {}, tarih: ex.tarih });
+          }
+          const choice = choices.get(info.grupKey);
+          choice.oturumlar[info.oturum] = (choice.oturumlar[info.oturum] || 0) + 1;
         } else {
-          newBtn.className = "btn btn-sm btn-primary shadow-sm font-bold";
-          existingBtn.className = "btn btn-sm btn-outline font-bold";
+          const name = (ex.sinavAdi || "").trim();
+          if (info || !name || (grade && examGrade(ex) !== grade)) return;
+          if (!choices.has(name)) choices.set(name, { key: name, label: name, sinavAdi: name, count: 0, tarih: ex.tarih });
+          choices.get(name).count++;
+        }
+      });
+      return [...choices.values()];
+    }
+
+    onUploadMetaChange() {
+      const grade = document.getElementById("upload-meta-grade")?.value || "";
+      const type = document.getElementById("upload-meta-type")?.value || "deneme";
+      const isExisting = this.uploadExamTargetMode === "existing";
+      const isVites = type === "vites";
+      this.uploadLastGrade = grade;
+      this.uploadLastType = type;
+
+      const show = (id, visible) => { const el = document.getElementById(id); if (el) el.style.display = visible ? "block" : "none"; };
+      show("upload-meta-name-group", !isExisting);
+      show("upload-meta-existing-group", isExisting);
+      show("upload-meta-oturum-group", isVites);
+
+      const nameLabel = document.getElementById("upload-meta-name-label");
+      const nameInput = document.getElementById("upload-meta-name");
+      if (nameLabel) nameLabel.innerText = isVites ? "Vites Sınavının Adı *" : "Sınav Adı *";
+      if (nameInput) nameInput.placeholder = isVites ? `örn. ${grade || 6}. Sınıf Vites 1` : `örn. ${grade || 8}. Sınıf LGS Deneme 3`;
+
+      if (isExisting) {
+        this._uploadChoices = this.getUploadExamChoices(grade, type);
+        const select = document.getElementById("upload-meta-existing");
+        if (select) {
+          select.innerHTML = this._uploadChoices.length === 0
+            ? `<option value="">(${grade ? grade + ". sınıfta " : ""}kayıtlı ${isVites ? "Vites" : "deneme"} sınavı yok — "Yeni Sınav Oluştur" seçiniz)</option>`
+            : `<option value="">Seçiniz...</option>` + this._uploadChoices.map((c) => {
+                const detail = isVites
+                  ? ["sozel", "sayisal"].map((o) => `${VitesService.oturumBilgisi(o).oturumAdi}: ${c.oturumlar[o] ? c.oturumlar[o] + " öğrenci" : "yok"}`).join(" • ")
+                  : `${c.count} öğrenci`;
+                return `<option value="${escapeHtml(c.key)}">${escapeHtml(c.label)} (${detail})</option>`;
+              }).join("");
         }
       }
+      this.onUploadExistingExamChange();
     }
 
-    onUploadTargetGradeChange(grade) {
-      this.uploadTargetGrade = grade;
-      const select = document.getElementById("upload-target-exam-select");
-      if (select) {
-        select.innerHTML = this.renderTargetExamOptions(grade);
+    onUploadExistingExamChange() {
+      const hint = document.getElementById("upload-meta-hint");
+      const isVites = document.getElementById("upload-meta-type")?.value === "vites";
+      const key = document.getElementById("upload-meta-existing")?.value;
+      const choice = this.uploadExamTargetMode === "existing" ? (this._uploadChoices || []).find((c) => c.key === key) : null;
+      let hintText = isVites
+        ? "🔀 Vites: Sözel ve Sayısal oturumlar aynı Vites sınavı altında birleştirilir ve tek sınav gibi analiz edilir. İkinci hafta oturumunu yüklerken \"Mevcut Sınava Ekle\" ile bu sınavı seçin."
+        : "ℹ️ PDF'teki tüm öğrenciler bu sınav adı ve tarihiyle kaydedilir.";
+
+      if (choice && isVites) {
+        const loaded = ["sozel", "sayisal"].filter((o) => choice.oturumlar[o]);
+        const missing = ["sozel", "sayisal"].filter((o) => !choice.oturumlar[o]);
+        const oturumSelect = document.getElementById("upload-meta-oturum");
+        if (oturumSelect && missing.length === 1) oturumSelect.value = missing[0];
+        hintText = `🔀 "${choice.label}" sınavında ${loaded.map((o) => VitesService.oturumBilgisi(o).oturumAdi).join(" ve ") || "henüz"} oturumu kayıtlı.`
+          + (missing.length === 1 ? ` Şimdi ${VitesService.oturumBilgisi(missing[0]).oturumAdi} oturumunu yükleyin; iki oturum otomatik birleştirilir.` : " Aynı oturumu yeniden yüklerseniz öğrencilerin o oturum sonuçları güncellenir.");
+      } else if (choice) {
+        const dateInput = document.getElementById("upload-meta-date");
+        if (dateInput && choice.tarih) dateInput.value = choice.tarih;
+        hintText = `ℹ️ PDF'teki öğrenciler "${choice.label}" sınavına eklenir (kayıtlı: ${choice.count} öğrenci).`;
       }
+      if (hint) hint.innerText = hintText;
     }
 
-    renderTargetExamOptions(grade = "all") {
-      const state = store.getState();
-      let allExams = this.getCalculatedExamGroups ? this.getCalculatedExamGroups() : [];
-      if (grade !== "all") {
-        allExams = allExams.filter((g) => {
-          const hasGradeInName = g.sinavAdi.includes(`${grade}.`) || g.sinavAdi.includes(`${grade} `) || g.sinavAdi.includes(`${grade}Sınıf`) || (grade === "8" && g.sinavAdi.toLowerCase().includes("lgs"));
-          const hasStudentWithGrade = g.exams.some((ex) => {
-            const st = state.students.find((s) => s.id === ex.ogrenciId);
-            const sGrade = st ? String(st.sinif) : String(ex.sinif || "");
-            return sGrade.startsWith(grade);
-          });
-          return hasGradeInName || hasStudentWithGrade;
-        });
-      }
+    /**
+     * Yükleme formundaki sınav bilgilerini okur ve doğrular. Eksik alan varsa uyarı gösterip null döner.
+     * Dönen examFields doğrudan sınav kaydına yazılır (sinavAdi, tarih, sinavTuru, sinifDuzeyi, oturum, vitesGrupAdi).
+     */
+    readUploadExamMeta() {
+      const mode = this.uploadExamTargetMode;
+      const fail = (msg) => { showToast(msg, "warning", 5000); return null; };
+      if (!mode) return fail("Önce \"Yeni Sınav Oluştur\" veya \"Mevcut Sınava Ekle\" seçeneğini seçiniz.");
 
-      if (allExams.length === 0) {
-        return `<option value="">(Seçili kademede kayıtlı sınav yok - Yeni Sınav seçiniz)</option>`;
-      }
+      const grade = document.getElementById("upload-meta-grade")?.value || "";
+      const type = document.getElementById("upload-meta-type")?.value || "deneme";
+      const tarih = document.getElementById("upload-meta-date")?.value || "";
+      const oturum = document.getElementById("upload-meta-oturum")?.value || "";
+      if (!grade) return fail("Lütfen sınıf düzeyini seçiniz.");
 
-      return allExams.map((g) => `
-        <option value="${escapeHtml(g.sinavAdi)}">${escapeHtml(g.sinavAdi)} (${g.totalStudents} Öğrenci)</option>
-      `).join("");
+      let baseName = "";
+      if (mode === "new") {
+        baseName = (document.getElementById("upload-meta-name")?.value || "").replace(/\s+/g, " ").trim();
+        if (!baseName) return fail("Lütfen sınav adını yazınız.");
+      } else {
+        const key = document.getElementById("upload-meta-existing")?.value;
+        const choice = (this._uploadChoices || []).find((c) => c.key === key);
+        if (!choice) return fail("Lütfen PDF'in ekleneceği sınavı seçiniz.");
+        baseName = type === "vites" ? choice.vitesGrupAdi : choice.sinavAdi;
+      }
+      if (type === "vites" && !oturum) return fail("Lütfen bu PDF'in oturumunu (Sözel / Sayısal) seçiniz.");
+      if (!tarih) return fail("Lütfen sınav tarihini seçiniz.");
+
+      const examFields = type === "vites"
+        ? { sinavTuru: "vites", sinifDuzeyi: grade, oturum, vitesGrupAdi: baseName, sinavAdi: `${baseName} - ${VitesService.oturumBilgisi(oturum).oturumAdi}`, tarih }
+        : { sinavTuru: "deneme", sinifDuzeyi: grade, sinavAdi: baseName, tarih };
+      return { mode, grade, isVites: type === "vites", examFields };
+    }
+
+    /** PDF'ten okunan şubeyi seçilen sınıf düzeyine uyarlar ("8/A" + 6. sınıf → "6/A"). */
+    normalizeUploadSube(sube, grade) {
+      const letter = String(sube || "").match(/\d{0,2}\s*[/-]?\s*([A-Za-zÇĞİÖŞÜçğıöşü]{1,2})\s*\)?\s*$/)?.[1];
+      return `${grade}/${(letter || "A").toLocaleUpperCase("tr-TR")}`;
+    }
+
+    /** PDF'teki öğrenciyi mevcut kayıtla eşleştirir; sınıf/şube formdaki sınıf düzeyine göre güncellenir. */
+    resolveUploadedStudent(ogrenci, meta) {
+      const sinif = meta.grade;
+      const sube = this.normalizeUploadSube(ogrenci.sube, sinif);
+      const existing = store.getState().students.find((s) => s.adSoyad.toLowerCase().trim() === ogrenci.adSoyad.toLowerCase().trim() || (s.numara && s.numara === ogrenci.numara));
+      if (existing) {
+        const changed = String(existing.sinif) !== sinif || existing.sube !== sube;
+        return { student: changed ? { ...existing, sinif, sube } : existing, isNew: false, changed };
+      }
+      return {
+        student: { id: generateId("ogr"), adSoyad: ogrenci.adSoyad, sinif, sube, numara: ogrenci.numara || "100", olusturmaTarihi: meta.examFields.tarih },
+        isNew: true,
+        changed: false
+      };
+    }
+
+    buildUploadedExamRecord(student, sinav, meta) {
+      return {
+        id: generateId("snv"),
+        ogrenciId: student.id,
+        kurumId: store.getState().institution.id,
+        ...meta.examFields,
+        tur: "kazanimli",
+        toplamSoru: sinav.toplamSoru || 90,
+        toplamNet: sinav.toplamNet,
+        puan: sinav.puan,
+        dersSonuclari: sinav.dersSonuclari
+      };
     }
 
     openMergeExamsModal(defaultSourceExamName = "") {

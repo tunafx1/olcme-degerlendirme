@@ -333,6 +333,146 @@
   }
 
   // ==========================================
+  // 3.1 VİTES (SÖZEL + SAYISAL İKİ OTURUMLU) DENEME YARDIMCILARI
+  // ==========================================
+  // Vites denemeleri iki haftaya bölünür: bir hafta Sözel, diğer hafta Sayısal oturumu yapılır.
+  // Örn: "Vites 6. Sınıf Sınav 1 Sözel 1" + "Vites 6. Sınıf Sınav 2 Sayısal 1" = 6. Sınıf Vites 1.
+  // Oturum adının sonundaki sayı (Sözel 1 / Sayısal 1) iki oturumu eşleştirir.
+  // İki oturum tek sınav gibi birleştirilerek analiz edilir; Vites netlerinde yanlış doğruyu götürmez.
+  const VitesService = {
+    detect(sinavAdi) {
+      const name = String(sinavAdi || "").replace(/\s+/g, " ").trim();
+      if (!/vites/i.test(name)) return null;
+      const oturumMatch = name.match(/(say[ıi]sal|s[öo]zel)\s*(\d+)?/i);
+      if (!oturumMatch) return null;
+      const oturum = /^say/i.test(oturumMatch[1]) ? "sayisal" : "sozel";
+      const turNo = oturumMatch[2] ? parseInt(oturumMatch[2], 10) : 1;
+      const sinifMatch = name.match(/(\d{1,2})\s*\.?\s*s[ıi]n[ıi]f/i);
+      const sinif = sinifMatch ? sinifMatch[1] : "";
+      return {
+        sinif,
+        oturum,
+        oturumAdi: oturum === "sayisal" ? "Sayısal" : "Sözel",
+        karsiOturumAdi: oturum === "sayisal" ? "Sözel" : "Sayısal",
+        turNo,
+        grupKey: `vites|${sinif}|${turNo}`,
+        grupAdi: `${sinif ? sinif + ". Sınıf " : ""}Vites ${turNo}`
+      };
+    },
+
+    isVitesExam(exam) {
+      return !!(exam && (exam.isVitesCombined || this.detect(exam.sinavAdi)));
+    },
+
+    dersOturumu(dersAdi) {
+      return /matematik|fen/i.test(String(dersAdi || "")) ? "sayisal" : "sozel";
+    },
+
+    findPartner(exam, allExams = []) {
+      const info = this.detect(exam?.sinavAdi);
+      if (!info) return null;
+      const candidates = allExams.filter((e) => {
+        if (!e || e.id === exam.id || e.ogrenciId !== exam.ogrenciId) return false;
+        const other = this.detect(e.sinavAdi);
+        return other && other.grupKey === info.grupKey && other.oturum !== info.oturum;
+      });
+      if (candidates.length === 0) return null;
+      return candidates.sort((a, b) => (new Date(b.tarih || 0).getTime() || 0) - (new Date(a.tarih || 0).getTime() || 0))[0];
+    },
+
+    /** Seçilen Vites oturumlarının eksik eşini (aynı öğrencinin diğer oturumunu) listeye ekler. */
+    withPartners(exams = [], allExams = []) {
+      const result = [...exams];
+      exams.forEach((exam) => {
+        const info = this.detect(exam?.sinavAdi);
+        if (!info) return;
+        const hasPartner = result.some((e) => {
+          const other = this.detect(e.sinavAdi);
+          return e.ogrenciId === exam.ogrenciId && other && other.grupKey === info.grupKey && other.oturum !== info.oturum;
+        });
+        if (!hasPartner) {
+          const partner = this.findPartner(exam, allExams);
+          if (partner) result.push(partner);
+        }
+      });
+      return result;
+    },
+
+    /** Oturuma ait olmayan, hiç girilmemiş boş ders satırlarını (eski ayrıştırmalardan kalan) temizler. */
+    cleanHalf(exam) {
+      const info = this.detect(exam?.sinavAdi);
+      if (!info) return exam;
+      const dersSonuclari = (exam.dersSonuclari || []).filter((d) => {
+        const attempted = (Number(d.dogru) || 0) + (Number(d.yanlis) || 0) > 0;
+        return attempted || this.dersOturumu(d.ders) === info.oturum;
+      });
+      return { ...exam, dersSonuclari, vites: info };
+    },
+
+    combine(examA, examB) {
+      const sorted = [this.cleanHalf(examA), this.cleanHalf(examB)].sort((a, b) => (new Date(a.tarih || 0).getTime() || 0) - (new Date(b.tarih || 0).getTime() || 0));
+      const info = sorted[0].vites;
+      const sozel = sorted.find((e) => e.vites.oturum === "sozel");
+      const sayisal = sorted.find((e) => e.vites.oturum === "sayisal");
+      const toplamNet = Number(sorted.reduce((acc, e) => acc + getVerifiedExamTotalNet(e), 0).toFixed(2));
+      const toplamSoru = sorted.reduce((acc, e) => acc + (e.dersSonuclari || []).reduce((s, d) => s + (Number(d.dogru) || 0) + (Number(d.yanlis) || 0) + (Number(d.bos) || 0), 0), 0);
+      return {
+        id: `vites_${sorted[0].id}_${sorted[1].id}`,
+        ogrenciId: sorted[0].ogrenciId,
+        kurumId: sorted[0].kurumId,
+        sinavAdi: `${info.grupAdi} (Sözel + Sayısal)`,
+        tarih: sorted[1].tarih || sorted[0].tarih,
+        tur: "kazanimli",
+        toplamSoru,
+        toplamNet,
+        puan: "",
+        puanEtiketi: `Sözel: ${sozel.puan || "-"} • Sayısal: ${sayisal.puan || "-"}`,
+        oturumlar: sorted.map((e) => ({ oturum: e.vites.oturum, oturumAdi: e.vites.oturumAdi, sinavAdi: e.sinavAdi, tarih: e.tarih, puan: e.puan || "-", toplamNet: getVerifiedExamTotalNet(e), examId: e.id })),
+        dersSonuclari: sorted.flatMap((e) => (e.dersSonuclari || []).map((d) => ({ ...d, oturum: e.vites.oturumAdi }))),
+        isVitesCombined: true,
+        vites: { ...info, oturum: "birlesik" },
+        kaynakSinavIdler: sorted.map((e) => e.id)
+      };
+    },
+
+    /** Aynı öğrencinin aynı Vites grubundaki Sözel + Sayısal oturumlarını tek birleşik sınava dönüştürür. */
+    combineList(exams = []) {
+      const result = [];
+      const used = new Set();
+      exams.forEach((exam) => {
+        if (!exam || used.has(exam.id)) return;
+        const info = this.detect(exam.sinavAdi);
+        if (!info || exam.isVitesCombined) {
+          result.push(exam);
+          return;
+        }
+        const partner = exams.find((e) => {
+          if (!e || used.has(e.id) || e.id === exam.id || e.ogrenciId !== exam.ogrenciId) return false;
+          const other = this.detect(e.sinavAdi);
+          return other && other.grupKey === info.grupKey && other.oturum !== info.oturum;
+        });
+        used.add(exam.id);
+        if (partner) {
+          used.add(partner.id);
+          result.push(this.combine(exam, partner));
+        } else {
+          result.push(this.cleanHalf(exam));
+        }
+      });
+      return result;
+    },
+
+    /** Sınavın gösterilecek puan metni (birleşik Vites'te oturum puanları ayrı ayrı). */
+    puanText(exam) {
+      if (!exam) return "-";
+      if (exam.isVitesCombined) return exam.puanEtiketi || "-";
+      const info = this.detect(exam.sinavAdi);
+      if (info && exam.puan) return `${info.oturumAdi}: ${exam.puan}`;
+      return exam.puan || "-";
+    }
+  };
+
+  // ==========================================
   // 4. FIREBASE SERVİSİ
   // ==========================================
   class FirebaseService {
@@ -681,7 +821,7 @@
           const headerBottomY = pageHeight * 0.45;
 
           const allPageItems = items
-            .map((item) => ({ str: item.str?.trim(), x: item.transform[4], y: item.transform[5], width: item.width }))
+            .map((item) => ({ str: item.str?.trim(), x: item.transform[4], y: item.transform[5], width: item.width, p: pNum }))
             .filter((item) => item.str && item.str.length > 0);
 
           const leftColumnItems = allPageItems.filter((it) => it.y < headerBottomY && it.x < midX);
@@ -768,7 +908,8 @@
         const pageText = pageData.pageStructuredText || "";
 
         // Sayfada yeni bir öğrenci sonuç karnesi/tablosu var mı?
-        const hasScorecardTable = /01\.D\s+02\.Y|05\.N|Doğru\s+Yanlış\s+Boş\s+Net/i.test(pageText) || (/\bLGS\s+\d+\s+\d+\s+\d+/i.test(pageText) && /Öğrenci\s*(?:Adı|Puan)/i.test(pageText));
+        // "Konu Analizli Sonuç Belgesi" (Vites vb.) tablosunda Boş sütunu yoktur: Doğru Yanlış Net Başarı%
+        const hasScorecardTable = /01\.D\s+02\.Y|05\.N|Doğru\s+Yanlış\s+Boş\s+Net|Doğru\s+Yanlış\s+Net\s+Başarı/i.test(pageText) || (/\bLGS\s+\d+\s+\d+\s+\d+/i.test(pageText) && /Öğrenci\s*(?:Adı|Puan)/i.test(pageText));
         const isDeficitContinuationPage = /Yanlış\s*Kazanımlar|Boş\s*Kazanımlar|Yanlis\s*Kazanimlar|Bos\s*Kazanimlar/i.test(pageText);
 
         const currentStudentName = pageData.localParsed?.ogrenci?.adSoyad || "";
@@ -832,9 +973,11 @@
           const currentIndex = queueIndex++;
           const docData = studentDocuments[currentIndex];
           let finalParsed = docData.localParsed;
+          // Vites karneleri koordinat tabanlı yerel ayrıştırıcıyla birebir okunur; AI ayıklamasına gerek yoktur.
+          const isVitesDoc = !!VitesService.detect(docData.localParsed?.sinav?.sinavAdi);
 
           try {
-            const aiParsed = await AIService.extractExamDataFromPdfText(docData.pageStructuredText, aiConfig, abortSignal);
+            const aiParsed = isVitesDoc ? null : await AIService.extractExamDataFromPdfText(docData.pageStructuredText, aiConfig, abortSignal);
             if (aiParsed && aiParsed.ogrenci && aiParsed.sinav) {
               finalParsed = PDFParserService.normalizeAiParsedData(aiParsed, docData.localParsed, docData.allPageItems, docData.fullPageRawLines);
             }
@@ -1127,7 +1270,8 @@
       const numMatch = text.match(/\bNumara[:\s]+(\d+)/i);
       if (numMatch) numara = numMatch[1].trim();
 
-      const subeMatch = text.match(/\bŞube[:\s]+([0-9/A-Za-z-]+)/i);
+      // Not: \b Türkçe "Ş" harfinden önce çalışmaz; satır başı veya boşluk aranır
+      const subeMatch = text.match(/(?:^|\s)Şube[:\s]+(\d{1,2}\s*[/-]?\s*[A-Za-zÇĞİÖŞÜ]{1,2})(?![A-Za-zÇĞİÖŞÜçğıöşü])/i);
       if (subeMatch) {
         sube = subeMatch[1].trim();
         const sClass = sube.match(/(\d+)/);
@@ -1137,10 +1281,14 @@
       const okulMatch = text.match(/Okul[:\s]+([^\n]+?)(?=\s+Geldiği|\s+Sınav|\s+Kitapçık|\n|$)/i);
       if (okulMatch) okul = okulMatch[1].trim();
 
-      const examMatch = text.match(/(?:Sınav\s*Adı|Sınav)[:\s]+([^\n]+?)(?=\s+Kitapçık|\s+Alan|\s+Sınav\s*Tarihi|\s+Tarih|\n|$)/i);
-      if (examMatch) sinavAdi = examMatch[1].trim();
+      // Vites adı iki satıra bölünmüş olabilir ("Vites 6. Sınıf Sınav 2" + "Sayısal 1"); "Sınav 2" kısmında kesilmemeli
+      const vitesNameMatch = text.match(/(Vites\b[^\n]*?(?:Say[ıi]sal|S[öo]zel)\s*\d*)/i);
+      const examMatch = vitesNameMatch ? null : text.match(/(?:Sınav\s*Adı|Sınav)[:\s]+([^\n]+?)(?=\s+Kitapçık|\s+Alan|\s+Sınav\s*Tarihi|\s+Tarih|\n|$)/i);
+      if (vitesNameMatch) sinavAdi = vitesNameMatch[1].replace(/(\d)(?=[A-Za-zÇĞİÖŞÜçğıöşü])/g, "$1 ").replace(/\s+/g, " ").trim();
+      else if (examMatch) sinavAdi = examMatch[1].trim();
+      const vitesInfo = VitesService.detect(sinavAdi);
 
-      const dateMatch = text.match(/(?:Sınav\s*Tarihi|Tarih)[:\s]+(\d{2}[./-]\d{2}[./-]\d{4})/i);
+      const dateMatch = text.match(/(?:Sınav\s*Tarihi|Tarihi?)[:\s]+(\d{2}[./-]\d{2}[./-]\d{4})/i);
       if (dateMatch) {
         const parts = dateMatch[1].split(/[./-]/);
         if (parts.length === 3) tarih = `${parts[2]}-${parts[1]}-${parts[0]}`;
@@ -1161,12 +1309,15 @@
         { name: "Din Kültürü ve Ahlak Bilgisi", regex: /Din\s*Kültürü[^\d]+(\d+)\s+(\d+)\s+(\d+)\s+([\d,.]+)/i },
         { name: "Yabancı Dil (İngilizce)", regex: /(?:Yabancı\s*Dil|İngilizce)[^\d]+(\d+)\s+(\d+)\s+(\d+)\s+([\d,.]+)/i },
         { name: "Matematik", regex: /Matematik\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d,.]+)/i },
-        { name: "Fen Bilimleri", regex: /(?:Fen\s*Bilimleri|Fen\s*Bilgisi)[^\d]+(\d+)\s+(\d+)\s+(\d+)\s+([\d,.]+)/i }
+        { name: "Fen Bilimleri", regex: /(?:Fen\s*Bilimleri|Fen\s*Bilgisi)[^\d]+(\d+)\s+(\d+)\s+(\d+)\s+([\d,.]+)/i },
+        { name: "Sosyal Bilgiler", regex: /Sosyal\s*Bilgiler\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d,.]+)/i }
       ];
 
+      const matchedLessons = new Set();
       LESSON_PATTERNS.forEach((lp) => {
         const m = text.match(lp.regex);
         if (m) {
+          matchedLessons.add(lp.name);
           const totalQ = parseInt(m[1], 10) || 0;
           const dogru = parseInt(m[2], 10) || 0;
           const yanlis = parseInt(m[3], 10) || 0;
@@ -1184,10 +1335,43 @@
         }
       });
 
+      // Sosyal Bilgiler (5-7. sınıf) yalnızca belgede varsa eklenir; varsa İnkılap satırı boş kalmasın
+      if (matchedLessons.has("Sosyal Bilgiler") && !matchedLessons.has("T.C. İnkılap Tarihi ve Atatürkçülük")) {
+        delete dersSonuclariMap["T.C. İnkılap Tarihi ve Atatürkçülük"];
+      }
+
+      // Vites: her oturumda yalnızca o oturumun dersleri vardır (Sayısal: Mat + Fen, Sözel: Türkçe, Sosyal, Din, İngilizce).
+      // Belgede olmayan dersler boş (0 net) satır ve uydurma eksik kazanım üretmesin diye çıkarılır.
+      if (vitesInfo) {
+        Object.keys(dersSonuclariMap).forEach((dKey) => {
+          if (!matchedLessons.has(dKey)) delete dersSonuclariMap[dKey];
+        });
+      }
+
       const toplamMatch = text.match(/Toplam\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d,.]+)/i);
       if (toplamMatch) {
         toplamNet = parseFloat(toplamMatch[4].replace(",", ".")) || 85.01;
       }
+
+      // Kazanım tablosundaki ders başlıkları: "Türkçe.08", "Matematik.06", "Fen Bilimleri-6", "Sosyal Bilgiler.07" ...
+      const detectDersHeader = (line) => {
+        const suffix = String.raw`(?:[.\-]\s*\d+|\s|$)`;
+        if (new RegExp(`^Türkçe${suffix}`, "i").test(line)) return "Türkçe";
+        if (new RegExp(`^Matematik${suffix}`, "i").test(line)) return "Matematik";
+        if (new RegExp(`^(?:Fen\\s*Bilgisi|Fen\\s*Bilimleri)${suffix}`, "i").test(line)) return "Fen Bilimleri";
+        if (new RegExp(`^(?:İnkılap\\s*Tarihi|T\\.C\\.\\s*İnkılap)${suffix}`, "i").test(line)) return "T.C. İnkılap Tarihi ve Atatürkçülük";
+        if (new RegExp(`^Sosyal\\s*Bilgiler${suffix}`, "i").test(line)) return "Sosyal Bilgiler";
+        if (new RegExp(`^(?:İngilizce|Yabancı\\s*Dil)${suffix}`, "i").test(line)) return "Yabancı Dil (İngilizce)";
+        if (new RegExp(`^Din\\s*Kültürü${suffix}`, "i").test(line)) return "Din Kültürü ve Ahlak Bilgisi";
+        return null;
+      };
+
+      // Vites "Konu Analizli Sonuç Belgesi": kazanım ağacı girinti (x konumu) ile kodlanır.
+      // Yalnızca en alt seviyedeki kazanımlar alınır; "SAYILAR VE İŞLEMLER" gibi üst başlıklar eksik sayılmaz.
+      const konuTable = vitesInfo ? PDFParserService.extractKonuAnalizTable(allPageItems, detectDersHeader) : [];
+      konuTable.forEach((entry) => {
+        if (dersSonuclariMap[entry.ders]) dersSonuclariMap[entry.ders].konular.push(entry.kazanim);
+      });
 
       // =========================================================================
       // ŞABLON 1: Satır Sonunda Soru / Doğru / Yanlış / % İçeren Standart Kazanımlar
@@ -1195,14 +1379,11 @@
       let currentDers = "Türkçe";
 
       for (let i = 0; i < lines.length; i++) {
+        if (konuTable.length > 0) break;
         const line = lines[i];
 
-        if (/^Türkçe(?:\.08|\s|$)/i.test(line)) currentDers = "Türkçe";
-        else if (/^(?:Matematik)(?:\.08|\s|$)/i.test(line)) currentDers = "Matematik";
-        else if (/^(?:Fen\s*Bilgisi|Fen\s*Bilimleri)(?:\.08|\s|$)/i.test(line)) currentDers = "Fen Bilimleri";
-        else if (/^(?:İnkılap\s*Tarihi|T\.C\.\s*İnkılap)(?:\.08|\s|$)/i.test(line)) currentDers = "T.C. İnkılap Tarihi ve Atatürkçülük";
-        else if (/^(?:İngilizce|Yabancı\s*Dil)(?:\.08|\s|$)/i.test(line)) currentDers = "Yabancı Dil (İngilizce)";
-        else if (/^(?:Din\s*Kültürü)(?:\.08|\s|$)/i.test(line)) currentDers = "Din Kültürü ve Ahlak Bilgisi";
+        const headerDers = detectDersHeader(line);
+        if (headerDers) currentDers = headerDers;
 
         // Satırın sonundaki sayıları eşle: Konu Adı ... [Sayı] [Doğru] [Yanlış] [%]
         const trailingMatch = line.match(/^[-•\s]*(.+?)\s+((?:%?\d+(?:[.,]\d+)?%?\s*){1,5})\s*$/);
@@ -1310,8 +1491,10 @@
         const dObj = dersSonuclariMap[dKey];
         const wrongGains = (dObj.konular || []).filter((k) => k.durum === "yanlis" || k.durum === "bos" || (k.basariYuzdesi !== undefined && k.basariYuzdesi < 100));
         const neededMissingCount = (dObj.yanlis || 0) + (dObj.bos > 0 ? 1 : 0);
+        // Vites kazanım tablosu soru bazında eksiksizdir (bir kazanımda birden çok yanlış olabilir); tamamlama yapılmaz
+        const hasCompleteKonuTable = konuTable.some((entry) => entry.ders === dKey);
 
-        if (neededMissingCount > 0 && wrongGains.length < neededMissingCount) {
+        if (!hasCompleteKonuTable && neededMissingCount > 0 && wrongGains.length < neededMissingCount) {
           const matchedCurriculumKey = Object.keys(CURRICULUM_DATA).find((k) => k.toLowerCase().includes(dKey.toLowerCase()) || dKey.toLowerCase().includes(k.toLowerCase()));
           const curriculumList = matchedCurriculumKey ? CURRICULUM_DATA[matchedCurriculumKey] : (CURRICULUM_DATA[dKey] || []);
           const missingCountToAdd = neededMissingCount - wrongGains.length;
@@ -1349,8 +1532,8 @@
         calculatedTotalCorrect += Number(d.dogru || 0);
         calculatedTotalWrong += Number(d.yanlis || 0);
 
-        // Kural: Doğru - (Yanlış / 3) net sağlama kontrolü
-        const expectedNet = Math.max(0, Number((d.dogru - (d.yanlis / 3)).toFixed(2)));
+        // Kural: Doğru - (Yanlış / 3) net sağlama kontrolü (Vites'te yanlış doğruyu götürmez: Net = Doğru)
+        const expectedNet = vitesInfo ? Number(d.dogru) || 0 : Math.max(0, Number((d.dogru - (d.yanlis / 3)).toFixed(2)));
         if (Math.abs(expectedNet - d.net) > 0.05) {
           uyarilar.push(`${d.ders} netinde uyuşmazlık (Okunan: ${d.net}, Hesaplanan: ${expectedNet})`);
         }
@@ -1413,13 +1596,130 @@
           sinavAdi: sinavAdi || "8. Sınıf Gelişim Takip-6 (Workwin 2025-26)",
           tarih,
           tur: "kazanimli",
-          toplamSoru: 90,
+          toplamSoru: vitesInfo ? dersSonuclari.reduce((acc, d) => acc + d.dogru + d.yanlis + d.bos, 0) : 90,
           toplamNet: Number(toplamNet.toFixed(2)),
           puan: finalPuan,
           dersSonuclari,
           dogrulama
         }
       };
+    }
+
+    /**
+     * "Konu Analizli Sonuç Belgesi" kazanım tablosunu koordinatlarla okur (Vites karneleri).
+     * Her sütunda "Konu Adı | Sayı | Doğ | Yan | %" başlığı bulunur; satırlar girintiyle ağaç oluşturur:
+     *   Matematik.06 → - SAYILAR VE İŞLEMLER → - Çarpanlar ve Katlar → - Doğal sayıların çarpanlarını ... belirler.
+     * Sadece yaprak (en alt seviye) satırlar kazanım olarak döndürülür. Uzun kazanımlar iki satıra kayabilir;
+     * sayılar iki satırın ortasında durduğu için metin parçaları en yakın sayı satırına bağlanır.
+     */
+    static extractKonuAnalizTable(allPageItems = [], detectDersHeader) {
+      const results = [];
+      const pages = new Map();
+      allPageItems.forEach((it) => {
+        const key = it.p || 1;
+        if (!pages.has(key)) pages.set(key, []);
+        pages.get(key).push(it);
+      });
+
+      const isNumberToken = (s) => /^\d+(?:[.,]\d+)?(?:\s+\d+(?:[.,]\d+)?)*$/.test(s);
+      let currentDers = null; // Sütun ve sayfa geçişlerinde ders devam eder
+
+      [...pages.keys()].sort((a, b) => a - b).forEach((pageKey) => {
+        const items = pages.get(pageKey);
+        const sayiHeaders = items.filter((it) => it.str === "Sayı").sort((a, b) => a.x - b.x);
+        const konuHeaders = items.filter((it) => /^Konu\s*Adı$/i.test(it.str));
+        if (sayiHeaders.length === 0 || konuHeaders.length === 0) return;
+        const headerY = Math.max(...konuHeaders.map((h) => h.y));
+
+        sayiHeaders.forEach((sayiHeader, colIdx) => {
+          const colLeft = colIdx === 0 ? 0 : sayiHeaders[colIdx - 1].x + 60;
+          const colRight = sayiHeader.x + 60;
+          const numberLeft = sayiHeader.x - 6;
+          const colItems = items.filter((it) => it.x >= colLeft && it.x < colRight && it.y < headerY - 2);
+
+          const numberItems = colItems.filter((it) => it.x >= numberLeft && isNumberToken(it.str));
+          const textItems = colItems.filter((it) => it.x < numberLeft);
+
+          // Sayı satırları: aynı y'deki sayı parçaları birleştirilir (örn. "0 100" tek parça gelebilir)
+          const rows = [];
+          numberItems.sort((a, b) => b.y - a.y || a.x - b.x).forEach((it) => {
+            let row = rows.find((r) => Math.abs(r.y - it.y) <= 1.5);
+            if (!row) {
+              row = { y: it.y, nums: [], texts: [] };
+              rows.push(row);
+            }
+            row.nums.push(it);
+          });
+          if (rows.length === 0) return;
+
+          textItems.forEach((it) => {
+            let nearest = null;
+            rows.forEach((r) => {
+              if (!nearest || Math.abs(r.y - it.y) < Math.abs(nearest.y - it.y)) nearest = r;
+            });
+            if (nearest && Math.abs(nearest.y - it.y) <= 5) nearest.texts.push(it);
+          });
+
+          const entries = rows
+            .sort((a, b) => b.y - a.y)
+            .map((r) => {
+              const tokens = r.nums.sort((a, b) => a.x - b.x).flatMap((n) => n.str.split(/\s+/));
+              const texts = r.texts.sort((a, b) => b.y - a.y || a.x - b.x);
+              const bullet = texts.find((t) => /^-/.test(t.str));
+              const text = texts.map((t) => t.str).join(" ").replace(/^-\s*/, "").replace(/\s+/g, " ").trim();
+              return {
+                text,
+                isBullet: !!bullet,
+                x: bullet ? bullet.x : (texts[0] ? texts[0].x : 0),
+                soru: parseInt(tokens[0], 10) || 0,
+                dogru: parseInt(tokens[1], 10) || 0,
+                yanlis: parseInt(tokens[2], 10) || 0,
+                yuzde: parseFloat(String(tokens[3] || "").replace(",", "."))
+              };
+            })
+            .filter((e) => e.text && e.soru > 0);
+
+          entries.forEach((entry, idx) => {
+            if (!entry.isBullet) {
+              const ders = detectDersHeader(entry.text);
+              if (ders) currentDers = ders;
+              return;
+            }
+            if (!currentDers) return;
+            // Bir sonraki satır daha içerideyse bu satır üst başlıktır (kategori / konu), kazanım değildir
+            const next = entries[idx + 1];
+            if (next && next.isBullet && next.x > entry.x + 1.5) return;
+
+            // Doğrudan üst başlık (konu adı) büyük harfli kategori değilse kazanımın önüne eklenir
+            let parent = null;
+            for (let j = idx - 1; j >= 0; j--) {
+              if (!entries[j].isBullet) break;
+              if (entries[j].x < entry.x - 1.5) { parent = entries[j]; break; }
+            }
+            const parentIsCategory = parent && parent.text === parent.text.toLocaleUpperCase("tr-TR");
+            const kazanimAdi = parent && !parentIsCategory ? `${parent.text}: ${entry.text}` : entry.text;
+
+            const yuzde = isNaN(entry.yuzde) ? (entry.soru > 0 ? Math.round((entry.dogru / entry.soru) * 100) : 0) : entry.yuzde;
+            const bos = Math.max(0, entry.soru - entry.dogru - entry.yanlis);
+            const isEksik = yuzde < 100 || entry.yanlis > 0 || entry.dogru < entry.soru;
+            results.push({
+              ders: currentDers,
+              kazanim: {
+                kazanimAdi,
+                durum: isEksik ? (entry.yanlis === 0 && bos > 0 ? "bos" : "yanlis") : "dogru",
+                soruSayisi: entry.soru,
+                dogru: entry.dogru,
+                yanlis: entry.yanlis,
+                bos,
+                basariYuzdesi: yuzde,
+                seviye: yuzde < 50 ? "kritik" : (yuzde < 85 ? "orta" : "hafif")
+              }
+            });
+          });
+        });
+      });
+
+      return results;
     }
   }
 
@@ -1431,6 +1731,9 @@
       if (!student || !exams || exams.length === 0) {
         throw new Error("Analiz için en az bir öğrenci ve sınav seçilmelidir.");
       }
+
+      // Vites: Sözel + Sayısal oturumları tek birleşik sınav olarak değerlendirilir (eş oturum otomatik eklenir)
+      exams = VitesService.combineList(VitesService.withPartners(exams, store.getState().exams));
 
       const provider = aiConfig?.provider || "openai";
       const promptText = this.buildPrompt(student, exams);
@@ -1655,9 +1958,18 @@
       let examSummary = sortedExams
         .map((exam, index) => {
           const verifiedNet = getVerifiedExamTotalNet(exam);
-          let details = `\n--- SINAV ${index + 1}: ${exam.sinavAdi} (Tarih: ${exam.tarih}, Doğrulanmış Toplam Net: ${verifiedNet}, LGS Puanı: ${exam.puan || "-"}) ---`;
+          const halfInfo = !exam.isVitesCombined ? VitesService.detect(exam.sinavAdi) : null;
+          let details;
+          if (exam.isVitesCombined) {
+            const oturumText = exam.oturumlar.map((o) => `${o.oturumAdi} oturumu: "${o.sinavAdi}" (Tarih: ${o.tarih}, Net: ${o.toplamNet}, Puan: ${o.puan})`).join(" + ");
+            details = `\n--- SINAV ${index + 1}: ${exam.sinavAdi} — İKİ OTURUMLU VİTES DENEMESİ (${oturumText}, Birleşik Toplam Net: ${verifiedNet}) ---`;
+          } else if (halfInfo) {
+            details = `\n--- SINAV ${index + 1}: ${exam.sinavAdi} — VİTES ${halfInfo.oturumAdi.toUpperCase()} OTURUMU (Tarih: ${exam.tarih}, Net: ${verifiedNet}, ${halfInfo.oturumAdi} Puanı: ${exam.puan || "-"}; ${halfInfo.karsiOturumAdi} oturumu henüz yüklenmedi) ---`;
+          } else {
+            details = `\n--- SINAV ${index + 1}: ${exam.sinavAdi} (Tarih: ${exam.tarih}, Doğrulanmış Toplam Net: ${verifiedNet}, LGS Puanı: ${exam.puan || "-"}) ---`;
+          }
           (exam.dersSonuclari || []).forEach((d) => {
-            details += `\n* Ders: ${d.ders} | Doğru: ${d.dogru}, Yanlış: ${d.yanlis}, Boş: ${d.bos}, Net: ${d.net}`;
+            details += `\n* Ders: ${d.ders}${d.oturum ? ` [${d.oturum} oturumu]` : ""} | Doğru: ${d.dogru}, Yanlış: ${d.yanlis}, Boş: ${d.bos}, Net: ${d.net}`;
             if (d.konular && d.konular.length > 0) {
               const eksikler = d.konular
                 .filter((k) => k.durum === "yanlis" || k.durum === "bos" || k.yanlis > 0 || k.bos > 0 || (k.basariYuzdesi !== undefined && k.basariYuzdesi < 100) || (k.soruSayisi > 0 && k.dogru < k.soruSayisi))
@@ -1679,8 +1991,20 @@ ${recurringTopics.map((t) => `• [${t.ders}] ${t.kazanimAdi} (${t.examIndices.s
 `;
       }
 
+      const sinifSeviyesi = String(student.sinif || "8").match(/\d+/)?.[0] || "8";
+      const hasVites = sortedExams.some((e) => VitesService.isVitesExam(e));
+      const vitesPrompt = hasVites ? `
+📌 VİTES DENEMESİ KURALLARI:
+- Vites denemeleri iki haftaya bölünmüş TEK bir denemedir: bir hafta Sözel (Türkçe, Sosyal Bilgiler/İnkılap, Din Kültürü, İngilizce), diğer hafta Sayısal (Matematik, Fen Bilimleri) oturumu yapılır.
+- "İKİ OTURUMLU VİTES DENEMESİ" olarak verilen sınavın Sözel ve Sayısal oturumlarını TEK SINAV gibi birlikte değerlendir; iki oturum arasında gelişim/düşüş karşılaştırması YAPMA.
+- Vites netlerinde yanlışlar doğruyu götürmez (Net = Doğru sayısı).
+- Oturum puanları ayrı ayrı hesaplanır; yorumda puanları toplamadan "Sözel puanı" ve "Sayısal puanı" olarak ayrı ayrı belirt.
+- Etüt programını iki oturumun TOPLAM eksik kazanımlarından oluştur; hem sözel hem sayısal derslerdeki eksiklere dengeli yer ver.
+- Yalnızca tek oturumu yüklenmiş Vites sınavında programı mevcut oturumun eksiklerinden oluştur ve diğer oturumun henüz değerlendirilmediğini belirt.
+` : "";
+
       return `Sen Türkiye'nin en seçkin LGS Eğitim Koçu, Rehberlik ve Ölçme Değerlendirme Uzmanısın.
-Aşağıda sınav sonuç karnesi verilen 8. sınıf öğrencisi için eksik analizini yap ve LGS mantığına uygun 7 günlük profesyonel bir Haftalık Çalışma Çizelgesi Tablosu (Etüt Matrisi) hazırla.
+Aşağıda sınav sonuç karnesi verilen ${sinifSeviyesi}. sınıf öğrencisi için eksik analizini yap ve ${sinifSeviyesi === "8" ? "LGS mantığına uygun" : `${sinifSeviyesi}. sınıf seviyesine uygun`} 7 günlük profesyonel bir Haftalık Çalışma Çizelgesi Tablosu (Etüt Matrisi) hazırla.
 
 ÖĞRENCİ:
 - Adı Soyadı: ${student.adSoyad} (${student.sinif}. Sınıf / ${student.sube} - No: ${student.numara})
@@ -1688,6 +2012,7 @@ Aşağıda sınav sonuç karnesi verilen 8. sınıf öğrencisi için eksik anal
 SINAV VERİLERİ VE KAZANIM ANALİZİ:
 ${examSummary}
 ${recurringWarningPrompt}
+${vitesPrompt}
 ${isMultiExam ? "NOT: Birden fazla sınav seçilmiştir. Sınavlar arasındaki net artış/azalışlarını, gelişim seyrini ve özellikle birden fazla sınavda tekrar eden ortak/kronik yanlış kazanımları 'gelisimAnalizi' alanında detaylıca karşılaştır." : ""}
 
 KURALLAR:
@@ -1697,7 +2022,7 @@ KURALLAR:
 3. ${isMultiExam ? "'gelisimAnalizi' alanında sınavlar arasındaki net artış/azalışlarını, hangi derslerde yükseliş/düşüş olduğunu ve özellikle aynı kazanımlarda yapılan tekrarlayan yanlışları derinlemesine değerlendir." : ""}
 4. 'haftalikTablo' içinde Pazartesi'den Pazar'a kadar 7 GÜNÜN HER BİRİ İÇİN 3 Ayrı Etüt (1. Etüt: Konu Tekrarı & Eksik Telafi, 2. Etüt: Yeni Nesil Soru Çözümü, 3. Etüt: Günlük Tekrar / Paragraf / Hata Defteri) oluştur.
    - 1. Etütler mutlaka öğrencinin %100 altında kalan ${recurringTopics.length > 0 ? "ve özellikle birden fazla sınavda tekrar eden ortak" : ""} eksik kazanımlarına odaklanmalıdır.
-   - Cumartesi Sabahı: 90 Soruluk Tam LGS Denemesi ve öğleden sonra Video Çözüm Analizi olmalı.
+   - Cumartesi Sabahı: ${sinifSeviyesi === "8" ? "90 Soruluk Tam LGS Denemesi" : `${sinifSeviyesi}. sınıf seviyesine uygun genel deneme (Vites / branş denemesi)`} ve öğleden sonra Video Çözüm Analizi olmalı.
    - Pazar Günü: Hata Defteri Tekrarı ve dinlenme olmalı.
 
 YANIT FORMATI:
@@ -2153,8 +2478,14 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           genelYorum += `Sınavlar arasında peş peşe hata yapılan ortak kronik bir kazanım bulunmamakta olup, tekil eksiklerin telafisine odaklanılmıştır.`;
         }
       } else {
-        genelYorum += `"${latestExam.sinavAdi}" sınav sonucun değerlendirilmiştir. `;
-        if (verifiedLatestNet >= 80) {
+        if (latestExam.isVitesCombined) {
+          genelYorum += `**${latestExam.sinavAdi}** denemesinin iki oturumu (${latestExam.oturumlar.map((o) => `${o.oturumAdi}: ${o.toplamNet} Net, Puan ${o.puan}`).join(" • ")}) tek sınav olarak birlikte değerlendirilmiştir. `;
+        } else {
+          genelYorum += `"${latestExam.sinavAdi}" sınav sonucun değerlendirilmiştir. `;
+        }
+        // Vites oturumları 20-40 soruluk olduğundan başarı eşiği soru sayısına göre hesaplanır
+        const yuksekNetEsigi = VitesService.isVitesExam(latestExam) ? (Number(latestExam.toplamSoru) || 0) * 0.85 : 80;
+        if (verifiedLatestNet >= yuksekNetEsigi) {
           genelYorum += `Elde ettiğin **${verifiedLatestNet} netlik yüksek başarı** ve puan performansın harikadır. `;
         } else {
           genelYorum += `Elde ettiğin **${verifiedLatestNet} netlik performans** düzenli çalışma ile daha da yükselecektir. `;
@@ -2238,11 +2569,13 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         },
         {
           gun: "Cumartesi",
-          gunlukOdak: "Tam LGS Deneme Sınavı",
-          etut1: { saat: "09:30 - 11:45", ders: "Genel Deneme", konu: "Süre Tutularak 90 Soruluk Tam LGS Denemesi", hedef: "90 Soru" },
+          gunlukOdak: String(student.sinif || "8").startsWith("8") ? "Tam LGS Deneme Sınavı" : "Genel Deneme Sınavı",
+          etut1: String(student.sinif || "8").startsWith("8")
+            ? { saat: "09:30 - 11:45", ders: "Genel Deneme", konu: "Süre Tutularak 90 Soruluk Tam LGS Denemesi", hedef: "90 Soru" }
+            : { saat: "09:30 - 11:00", ders: "Genel Deneme", konu: `Süre Tutularak ${student.sinif}. Sınıf Genel Deneme (Vites / Branş)`, hedef: "60 Soru" },
           etut2: { saat: "13:30 - 15:00", ders: "Deneme Analizi", konu: "Yanlış/Boş Soruların Video Çözümleri", hedef: "20 Soru" },
           etut3: { saat: "15:30 - 17:00", ders: "Özel Telafi", konu: "Haftanın %100 Altında Kalan Eksik Kazanımları Karma Test", hedef: "40 Soru" },
-          gunlukToplamSoru: 150
+          gunlukToplamSoru: String(student.sinif || "8").startsWith("8") ? 150 : 120
         },
         {
           gun: "Pazar",
@@ -2429,12 +2762,15 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             sube: "A",
             numara: ex.ogrenciNo || "-"
           };
-          const studentExams = state.exams.filter((e) => e.ogrenciId === student.id && (!cleanExamName || (e.sinavAdi && e.sinavAdi.trim().toLowerCase() === cleanExamName.toLowerCase())));
-          
-          // Mevcut raporu ara
-          const existingReport = state.reports.find((r) => r.ogrenciId === student.id || (r.ogrenciAdSoyad && student.adSoyad && r.ogrenciAdSoyad.toLowerCase().trim() === student.adSoyad.toLowerCase().trim()));
+          // Vites: seçilen oturumun eşi (Sözel ↔ Sayısal) karneye birlikte eklenir
+          const studentExams = VitesService.withPartners(state.exams.filter((e) => e.ogrenciId === student.id && (!cleanExamName || (e.sinavAdi && e.sinavAdi.trim().toLowerCase() === cleanExamName.toLowerCase()))), state.exams);
+          const studentExamIds = studentExams.map((e) => e.id);
 
-          const resolvedReport = existingReport || AIService.generateSimulatedAnalysis(student, studentExams.length > 0 ? studentExams : [ex]);
+          // Mevcut raporu ara (önce bu sınavı içeren rapor)
+          const existingReport = state.reports.find((r) => r.ogrenciId === student.id && (r.kullanilanSinavIdler || []).some((id) => studentExamIds.includes(id)))
+            || state.reports.find((r) => r.ogrenciId === student.id || (r.ogrenciAdSoyad && student.adSoyad && r.ogrenciAdSoyad.toLowerCase().trim() === student.adSoyad.toLowerCase().trim()));
+
+          const resolvedReport = existingReport || AIService.generateSimulatedAnalysis(student, VitesService.combineList(studentExams.length > 0 ? studentExams : [ex]));
 
           targetItems.push({
             student,
@@ -2562,6 +2898,9 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       let logoHtml = `<img src="${logoSrc}" alt="${institution.ad}" class="report-header-logo-img" style="max-height: 52px; max-width: 130px; object-fit: contain;" />`;
       let logoHtmlMini = `<img src="${logoSrc}" alt="${institution.ad}" style="max-height: 32px; max-width: 80px; object-fit: contain;" />`;
 
+      // Vites oturumları (Sözel + Sayısal) karnede tek sınav olarak gösterilir
+      exams = VitesService.combineList(exams || []);
+
       // Sınavları her zaman kronolojik sıraya göre düzenle
       const sortedExams = [...(exams || [])].sort((a, b) => {
         const tA = new Date(a.tarih || 0).getTime() || 0;
@@ -2650,7 +2989,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             <div style="background: rgba(168, 85, 247, 0.06); border: 1.5px solid rgba(168, 85, 247, 0.25); border-radius: 6px; padding: 6px 8px; text-align: center;">
               <div style="font-size: 9.5px; color: #7e22ce; font-weight: 700;">${isLgsScale ? "LGS Puan Gelişimi" : "Sınav Puanı"}</div>
               <div style="font-size: 13px; font-weight: 800; color: #9333ea; margin: 2px 0;">
-                ${firstExam.puan && firstExam.puan !== 'Okunamadı' ? firstExam.puan : '-'} ➔ ${latestExam.puan && latestExam.puan !== 'Okunamadı' ? latestExam.puan : '-'}
+                ${VitesService.isVitesExam(firstExam) ? VitesService.puanText(firstExam) : (firstExam.puan && firstExam.puan !== 'Okunamadı' ? firstExam.puan : '-')} ➔ ${VitesService.isVitesExam(latestExam) ? VitesService.puanText(latestExam) : (latestExam.puan && latestExam.puan !== 'Okunamadı' ? latestExam.puan : '-')}
               </div>
               <span class="badge ${puanDiff !== null ? (puanDiff > 0 ? 'badge-success' : puanDiff < 0 ? 'badge-danger' : 'badge-secondary') : 'badge-light'} font-bold" style="font-size: 8.5px; padding: 1px 5px;">
                 ${puanDiff !== null ? (puanDiff > 0 ? '📈 +' + puanDiff + ' Puan (Artış)' : puanDiff < 0 ? '📉 ' + puanDiff + ' Puan (Düşüş)' : '➡️ 0.00 Puan') : 'Puan Takibi'}
@@ -2819,20 +3158,26 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           .map((exam) => `
             <div class="report-exam-card mb-2" style="padding: 10px 14px;">
               <div class="report-exam-card-title mb-2">
-                <span style="font-size: 13px;"><strong>${exam.sinavAdi}</strong> (${formatDate(exam.tarih)})</span>
+                <span style="font-size: 13px;"><strong>${exam.sinavAdi}</strong> (${exam.isVitesCombined ? exam.oturumlar.map((o) => `${o.oturumAdi}: ${formatDate(o.tarih)}`).join(" • ") : formatDate(exam.tarih)})</span>
                 <div class="d-flex gap-2">
-                  <span class="badge badge-warning font-bold" style="font-size: 11px;">LGS: <strong>${exam.puan || "-"}</strong></span>
+                  ${exam.isVitesCombined
+                    ? exam.oturumlar.map((o) => `<span class="badge badge-warning font-bold" style="font-size: 11px;">${o.oturumAdi} Puanı: <strong>${o.puan}</strong></span>`).join("")
+                    : VitesService.detect(exam.sinavAdi)
+                      ? `<span class="badge badge-warning font-bold" style="font-size: 11px;">${VitesService.detect(exam.sinavAdi).oturumAdi} Puanı: <strong>${exam.puan || "-"}</strong></span>`
+                      : `<span class="badge badge-warning font-bold" style="font-size: 11px;">LGS: <strong>${exam.puan || "-"}</strong></span>`}
                   <span class="badge badge-primary font-bold" style="font-size: 11px;">Toplam Net: <strong>${getVerifiedExamTotalNet(exam)} Net</strong></span>
                 </div>
               </div>
+              ${!exam.isVitesCombined && VitesService.detect(exam.sinavAdi) ? `<div style="font-size: 10.5px; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 4px; padding: 4px 8px; margin-bottom: 6px;">⏳ Bu Vites denemesinin ${VitesService.detect(exam.sinavAdi).karsiOturumAdi} oturumu henüz yüklenmedi; değerlendirme yalnızca ${VitesService.detect(exam.sinavAdi).oturumAdi} oturumuna dayanır.</div>` : ""}
               <table class="report-table" style="font-size: 12px;">
-                <thead><tr><th>Ders</th><th>Doğru</th><th>Yanlış</th><th>Boş</th><th>Net</th><th>Başarı %</th></tr></thead>
+                <thead><tr><th>Ders</th>${exam.isVitesCombined ? "<th>Oturum</th>" : ""}<th>Doğru</th><th>Yanlış</th><th>Boş</th><th>Net</th><th>Başarı %</th></tr></thead>
                 <tbody>
                   ${(exam.dersSonuclari || []).map((d) => {
                     const total = Number(d.dogru) + Number(d.yanlis) + Number(d.bos);
                     const rate = total > 0 ? Math.round((Number(d.dogru) / total) * 100) : 0;
                     return `<tr>
                       <td><strong>${d.ders}</strong></td>
+                      ${exam.isVitesCombined ? `<td><span class="badge badge-secondary" style="font-size: 10px;">${d.oturum || "-"}</span></td>` : ""}
                       <td class="text-success font-bold">${d.dogru}</td>
                       <td class="text-danger font-bold">${d.yanlis}</td>
                       <td class="text-muted">${d.bos}</td>
@@ -2976,7 +3321,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         scheduleMatrixHtml = `
           <div class="report-section mb-2">
             <div class="report-section-header" style="border-color: ${themeColor}; margin-bottom: 8px;">
-              <h3 style="color: ${themeColor}; font-size: 14px;">📅 7 Günlük LGS Haftalık Çalışma Çizelgesi & Etüt Matrisi</h3>
+              <h3 style="color: ${themeColor}; font-size: 14px;">📅 7 Günlük ${String(student?.sinif || "8").startsWith("8") ? "LGS " : ""}Haftalık Çalışma Çizelgesi & Etüt Matrisi</h3>
               <span class="report-section-sub" style="font-size: 11px;">Eksik kazanımlara odaklı saatli ve hedefli etüt planı</span>
             </div>
 
@@ -3942,6 +4287,14 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const safeExamName = escapeHtml(group.sinavAdi);
       const sortedStudentExams = [...group.exams].sort((a, b) => (Number(b.toplamNet) || 0) - (Number(a.toplamNet) || 0));
 
+      // Vites: eş oturumu (Sözel ↔ Sayısal) yüklenmiş öğrenci sayısı
+      const vitesInfo = VitesService.detect(group.sinavAdi);
+      const vitesPairedCount = vitesInfo ? group.exams.filter((ex) => VitesService.findPartner(ex, state.exams)).length : 0;
+      const vitesBadgeHtml = vitesInfo ? `<span class="badge badge-primary" style="font-size: 10.5px;" title="İki oturumlu Vites denemesi: Sözel + Sayısal oturumları birleştirilerek tek sınav olarak değerlendirilir">🔀 ${escapeHtml(vitesInfo.grupAdi)} • ${vitesInfo.oturumAdi} Oturumu</span>` : "";
+      const vitesStatusHtml = !vitesInfo ? "" : vitesPairedCount > 0
+        ? `<span class="exam-group-stat-badge badge-success-light" title="Bu öğrencilerin AI analizinde iki oturum birleştirilir">🔗 ${vitesInfo.karsiOturumAdi} oturumu eşleşti: <strong>${vitesPairedCount}/${group.totalStudents}</strong></span>`
+        : `<span class="exam-group-stat-badge" style="color: #b45309;" title="${vitesInfo.karsiOturumAdi} oturumu yüklendiğinde iki oturum otomatik birleştirilir">⏳ ${vitesInfo.karsiOturumAdi} oturumu bekleniyor</span>`;
+
       return `
         <div class="exam-group-card ${isExpanded ? "expanded" : ""}" id="exam-group-card-${gIdx}" data-group-index="${gIdx}">
           <div class="exam-group-header" onclick="window.app.toggleExamGroup(${gIdx})">
@@ -3950,9 +4303,11 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
                 <h3 class="exam-group-title">${safeExamName}</h3>
                 <button type="button" class="btn btn-sm btn-ghost p-1" style="font-size: 13px; line-height: 1;" onclick="event.stopPropagation(); window.app.openRenameExamModal('${safeExamName}')" title="Sınav Adını Değiştir / Düzenle">✏️</button>
                 <span class="badge ${group.tur === "kazanimli" ? "badge-success" : "badge-secondary"}" style="font-size: 10.5px;">${group.tur === "kazanimli" ? "🎯 Kazanımlı" : "📊 Kazanımsız"}</span>
+                ${vitesBadgeHtml}
               </div>
               <div class="exam-group-meta-badges">
                 <span class="exam-group-stat-badge badge-highlight">👥 <strong>${group.totalStudents}</strong> Öğrenci</span>
+                ${vitesStatusHtml}
                 <span class="exam-group-stat-badge">🎯 Ort. Net: <strong>${group.avgNet}</strong></span>
                 <span class="exam-group-stat-badge">🏆 Zirve: <strong>${group.maxNet} Net</strong></span>
                 <span class="exam-group-stat-badge">📅 ${formatDate(group.tarih)}</span>
@@ -4083,11 +4438,12 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
                 ${studentExams.length === 0 ? `<div class="empty-state p-4"><p>Bu öğrenciye ait kayıtlı sınav bulunmuyor.</p></div>` : studentExams.map((exam) => `
                   <label class="ai-exam-select-item active">
                     <input type="checkbox" name="ai-selected-exams" value="${exam.id}" checked onchange="this.parentElement.classList.toggle('active', this.checked)" />
-                    <div class="ai-exam-item-details"><div class="font-bold">${exam.sinavAdi}</div><div class="text-muted" style="font-size: 12px;">Tarih: ${formatDate(exam.tarih)} • Tür: ${exam.tur === "kazanimli" ? "Kazanımlı" : "Kazanımsız"} ${exam.puan ? `• Puan: ${exam.puan}` : ""}</div></div>
+                    <div class="ai-exam-item-details"><div class="font-bold">${exam.sinavAdi} ${VitesService.detect(exam.sinavAdi) ? `<span class="badge badge-primary" style="font-size: 10.5px;">🔀 Vites ${VitesService.detect(exam.sinavAdi).oturumAdi}${VitesService.findPartner(exam, exams) ? " • eşi var" : " • eşi yok"}</span>` : ""}</div><div class="text-muted" style="font-size: 12px;">Tarih: ${formatDate(exam.tarih)} • Tür: ${exam.tur === "kazanimli" ? "Kazanımlı" : "Kazanımsız"} ${exam.puan ? `• Puan: ${exam.puan}` : ""}</div></div>
                     <div class="ai-exam-item-net"><span class="badge badge-primary font-bold">${exam.toplamNet || "-"} Net</span></div>
                   </label>
                 `).join("")}
               </div>
+              ${studentExams.some((e) => VitesService.detect(e.sinavAdi)) ? `<div style="margin-top: 8px; font-size: 12px; color: #1e40af; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 8px 10px;">🔀 <strong>Vites:</strong> Seçilen Vites oturumu, aynı Vites'in diğer oturumuyla (Sözel ↔ Sayısal) otomatik birleştirilir ve iki oturumun toplamı tek sınav olarak analiz edilir. Etüt programı iki oturumun ortak eksiklerinden hazırlanır.</div>` : ""}
             </div>
 
             <!-- AI SAĞLAYICI SEÇİMİ -->
@@ -5415,6 +5771,24 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       students.forEach((s) => { totalNetSum += Number(s.sinav.toplamNet || 0); });
       const avgNet = (totalNetSum / students.length).toFixed(1);
 
+      // Vites: bu oturumun eşi (Sözel ↔ Sayısal) sistemde kayıtlı mı?
+      const vitesInfo = VitesService.detect(students[0]?.sinav?.sinavAdi);
+      let vitesBannerHtml = "";
+      if (vitesInfo) {
+        const state = store.getState();
+        const pairedCount = students.filter((item) => {
+          const st = state.students.find((s) => s.adSoyad.toLowerCase().trim() === item.ogrenci.adSoyad.toLowerCase().trim() || (s.numara && s.numara === item.ogrenci.numara));
+          return st && VitesService.findPartner({ id: "__yeni__", ogrenciId: st.id, sinavAdi: item.sinav.sinavAdi }, state.exams);
+        }).length;
+        vitesBannerHtml = `
+          <div class="card p-3 mb-3" style="background: #eff6ff; border: 1px solid #bfdbfe; color: #1e3a8a; font-size: 13px;">
+            🔀 <strong>Vites denemesi algılandı:</strong> ${escapeHtml(vitesInfo.grupAdi)} — <strong>${vitesInfo.oturumAdi} oturumu</strong> (netlerde yanlış doğruyu götürmez).<br/>
+            ${pairedCount > 0
+              ? `🔗 <strong>${pairedCount}/${students.length}</strong> öğrencinin ${vitesInfo.karsiOturumAdi} oturumu sistemde kayıtlı. AI analizinde iki oturum birleştirilerek tek sınav gibi değerlendirilecek ve etüt programı ortak sonuçtan hazırlanacak.`
+              : `⏳ ${vitesInfo.karsiOturumAdi} oturumu henüz yüklenmedi. Şimdi yalnızca kaydedip ${vitesInfo.karsiOturumAdi} oturumu yüklendiğinde AI analizini başlatmanız önerilir; iki oturum otomatik birleştirilir.`}
+          </div>`;
+      }
+
       preview.innerHTML = `
         <div class="card p-3 mb-3" style="background: var(--bg-main); border: 1px solid var(--border-color);">
           <div class="d-flex justify-between items-center flex-wrap gap-2">
@@ -5428,6 +5802,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             </div>
           </div>
         </div>
+        ${vitesBannerHtml}
 
         <div class="filter-search mb-3">
           <input type="text" id="batch-student-search" class="search-input" placeholder="Ayrıştırılan öğrencilerde ara (İsim veya no)..." oninput="window.app.filterBatchTable()" />
@@ -5627,7 +6002,9 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         store.addExam(exam);
 
         try {
-          const aiRes = await AIService.analyzeExams(student, [exam], state.aiConfig);
+          // Vites: daha önce yüklenen eş oturum (Sözel ↔ Sayısal) varsa birleşik rapor üretilir
+          const analysisExams = VitesService.withPartners([exam], store.getState().exams);
+          const aiRes = await AIService.analyzeExams(student, analysisExams, state.aiConfig);
           const report = {
             id: generateId("rep"),
             ogrenciId: student.id,
@@ -5635,7 +6012,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             sinif: `${student.sinif}. Sınıf / ${student.sube}`,
             numara: student.numara,
             kurumId: state.institution.id,
-            kullanilanSinavIdler: [exam.id],
+            kullanilanSinavIdler: analysisExams.map((e) => e.id),
             aiSaglayici: AIService.getProviderLabel(state.aiConfig, aiRes),
             olusturmaTarihi: new Date().toISOString(),
             createdAt: Date.now(),
@@ -6873,6 +7250,8 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     async runDirectAiAnalysis(student, chosenExams) {
       if (!student || !chosenExams || chosenExams.length === 0) return;
       const state = store.getState();
+      // Vites oturumunun eşi (Sözel ↔ Sayısal) rapora birlikte bağlanır
+      chosenExams = VitesService.withPartners(chosenExams, state.exams);
 
       this.isSingleAiParsing = true;
       this.isSingleAiModalMinimized = false;

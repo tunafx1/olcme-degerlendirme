@@ -1746,12 +1746,8 @@
         rawResult = this.generateSimulatedAnalysis(student, exams);
       } else {
         try {
-          if (provider === "openai") {
-            rawResult = await this.callOpenAI(promptText, aiConfig, abortSignal);
-          } else if (provider === "gemini") {
-            rawResult = await this.callGemini(promptText, aiConfig, abortSignal);
-          } else if (provider === "claude") {
-            rawResult = await this.callClaude(promptText, aiConfig, abortSignal);
+          if (["openai", "gemini", "claude"].includes(provider)) {
+            rawResult = await this.callProvider(provider, promptText, aiConfig, abortSignal);
           } else {
             rawResult = this.generateSimulatedAnalysis(student, exams);
           }
@@ -2174,28 +2170,42 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       return result;
     }
 
+    static callProvider(provider, promptText, config, abortSignal = null) {
+      if (provider === "gemini") return this.callGemini(promptText, config, abortSignal);
+      if (provider === "claude") return this.callClaude(promptText, config, abortSignal);
+      return this.callOpenAI(promptText, config, abortSignal);
+    }
+
     static async callOpenAI(promptText, config, abortSignal = null) {
       const model = config.openaiModel || "gpt-4o-mini";
       const apiKey = config.openaiApiKey;
       const url = "https://api.openai.com/v1/chat/completions";
 
-      const response = await fetch(url, {
-        method: "POST",
-        signal: abortSignal,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: model,
-          messages: [
-            { role: "system", content: "Sen Türkçe LGS eğitim ve ölçme-değerlendirme uzmanısın. Yalnızca geçerli JSON nesnesi döndürürsün." },
-            { role: "user", content: promptText }
-          ],
-          response_format: { type: "json_object" },
-          temperature: config.temperature !== undefined ? config.temperature : 0.2
-        })
-      });
+      let response;
+      try {
+        response = await fetch(url, {
+          method: "POST",
+          signal: abortSignal,
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model: model,
+            messages: [
+              { role: "system", content: "Sen Türkçe LGS eğitim ve ölçme-değerlendirme uzmanısın. Yalnızca geçerli JSON nesnesi döndürürsün." },
+              { role: "user", content: promptText }
+            ],
+            response_format: { type: "json_object" },
+            temperature: config.temperature !== undefined ? config.temperature : 0.2
+          })
+        });
+      } catch (err) {
+        if (err.name === "AbortError") throw err;
+        // OpenAI hata yanıtlarında (401 geçersiz anahtar, 429 kota/bakiye) CORS başlığı göndermez;
+        // tarayıcı gerçek hatayı gizler ve yalnızca "Failed to fetch" görünür.
+        throw new Error(`OpenAI isteği tarayıcıda okunamadı (${err.message}). OpenAI bu durumu genellikle geçersiz/iptal edilmiş API anahtarı veya bitmiş kota/bakiye için verir; anahtarı ve bakiyeyi platform.openai.com adresinde kontrol edin.`);
+      }
 
       if (!response.ok) {
         const errBody = await response.text();
@@ -2253,7 +2263,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
         },
         body: JSON.stringify({
           model: model,
-          max_tokens: 4000,
+          max_tokens: 8192,
           temperature: config.temperature !== undefined ? config.temperature : 0.2,
           messages: [{ role: "user", content: promptText }]
         })
@@ -2267,6 +2277,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const data = await response.json();
       const content = data.content?.[0]?.text;
       if (!content) throw new Error("Claude boş yanıt döndürdü.");
+      if (data.stop_reason === "max_tokens") throw new Error("Claude yanıtı token sınırında kesildi (eksik JSON).");
       return this.cleanAndParseJSON(content);
     }
 
@@ -4639,7 +4650,7 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
     return `
       <div class="view-container animate-fade-in">
         <div class="view-header">
-          <div><h1 class="view-title">Yapay Zekâ Sağlayıcı Ayarları</h1><p class="view-subtitle">OpenAI ChatGPT ve Google Gemini API anahtarlarınızı yönetin.</p></div>
+          <div><h1 class="view-title">Yapay Zekâ Sağlayıcı Ayarları</h1><p class="view-subtitle">OpenAI ChatGPT, Google Gemini ve Anthropic Claude API anahtarlarınızı yönetin.</p></div>
         </div>
 
         <div class="card">
@@ -4654,6 +4665,11 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
                 <label class="form-label font-bold">🔵 Google Gemini API Anahtarı:</label>
                 <input type="text" id="gemini-api-key" class="form-control" value="${ai.geminiApiKey || ""}" placeholder="AIzaSy..." />
               </div>
+              <div class="form-group mt-3">
+                <label class="form-label font-bold">🟣 Anthropic Claude API Anahtarı:</label>
+                <input type="text" id="claude-api-key" class="form-control" value="${ai.claudeApiKey || ""}" placeholder="sk-ant-..." />
+              </div>
+              <p class="text-muted mt-3" style="font-size: 12.5px;">Aktif sağlayıcı: <strong>${AIService.getProviderLabel(ai, {})}</strong> (AI Sınav Analizi ekranından değiştirilebilir). "Bağlantıyı Test Et" aktif sağlayıcıya küçük bir istek gönderir ve hata varsa API'nin döndürdüğü mesajı gösterir.</p>
               <div class="d-flex justify-between items-center mt-4">
                 <button type="button" class="btn btn-outline" onclick="window.app.testAiConnection()">Bağlantıyı Test Et</button>
                 <button type="submit" class="btn btn-primary btn-lg shadow-glow">Ayarları Kaydet</button>
@@ -5966,6 +5982,8 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       const state = store.getState();
       const total = studentsList.length;
       let completedCount = 0;
+      let fallbackCount = 0;
+      let lastAiError = "";
 
       for (let i = 0; i < total; i++) {
         if (this.isBatchCancelled) {
@@ -6005,6 +6023,12 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           // Vites: daha önce yüklenen eş oturum (Sözel ↔ Sayısal) varsa birleşik rapor üretilir
           const analysisExams = VitesService.withPartners([exam], store.getState().exams);
           const aiRes = await AIService.analyzeExams(student, analysisExams, state.aiConfig);
+          if (aiRes._fallbackUsed) {
+            fallbackCount++;
+            lastAiError = aiRes._errorMessage || "";
+            // Hata yalnızca ilk seferde gösterilir; tüm öğrencilerde tekrar etmesin
+            if (fallbackCount === 1) AIService.warnIfFallback(aiRes);
+          }
           const report = {
             id: generateId("rep"),
             ogrenciId: student.id,
@@ -6021,7 +6045,8 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
             gelisimAnalizi: "",
             haftalikTablo: aiRes.haftalikTablo || [],
             haftalikOzet: aiRes.haftalikOzet || null,
-            calismaProgrami: aiRes.calismaProgrami || []
+            calismaProgrami: aiRes.calismaProgrami || [],
+            aiHata: aiRes._fallbackUsed ? String(aiRes._errorMessage || "").slice(0, 500) : ""
           };
           store.addReport(report);
           completedCount++;
@@ -6034,7 +6059,11 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       this.updateAnalysisProgress({ status: "idle", percent: 0 });
       this.closeModal("pdf-upload-modal");
       if (!this.isBatchCancelled) {
-        showToast(`🎉 Tebrikler! ${total} öğrencinin tamamı için AI analiz raporları üretildi ve arşive eklendi!`, "success", 5000);
+        if (fallbackCount > 0) {
+          showToast(`⚠️ ${completedCount} raporun ${fallbackCount} tanesi yapay zekâ çağrısı başarısız olduğu için yerleşik yedek motorla üretildi. Hata: ${lastAiError.slice(0, 200)}`, "warning", 15000);
+        } else {
+          showToast(`🎉 Tebrikler! ${total} öğrencinin tamamı için AI analiz raporları üretildi ve arşive eklendi!`, "success", 5000);
+        }
       }
       this.navigate("reports");
     }
@@ -7298,7 +7327,8 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
           gelisimAnalizi: aiResult.gelisimAnalizi || "",
           haftalikTablo: aiResult.haftalikTablo || [],
           haftalikOzet: aiResult.haftalikOzet || null,
-          calismaProgrami: aiResult.calismaProgrami || []
+          calismaProgrami: aiResult.calismaProgrami || [],
+          aiHata: aiResult._fallbackUsed ? String(aiResult._errorMessage || "").slice(0, 500) : ""
         };
 
         store.addReport(newReport);
@@ -7437,17 +7467,25 @@ SADECE geçerli bir JSON nesnesi döndür (ekstra metin, açıklama veya backtic
       e.preventDefault();
       const openaiApiKey = document.getElementById("openai-api-key")?.value.trim();
       const geminiApiKey = document.getElementById("gemini-api-key")?.value.trim();
-      store.updateAiConfig({ openaiApiKey, geminiApiKey });
+      const claudeApiKey = document.getElementById("claude-api-key")?.value.trim();
+      store.updateAiConfig({ openaiApiKey, geminiApiKey, claudeApiKey });
     }
 
     async testAiConnection() {
-      const state = store.getState();
-      showToast(`${state.aiConfig.provider.toUpperCase()} test ediliyor...`, "info");
+      // Not: analyzeExams hata durumunda yedek motora geçtiği için test, sağlayıcıyı doğrudan çağırır
+      const config = store.getState().aiConfig;
+      const provider = config.provider || "openai";
+      const label = AIService.getProviderLabel(config, {});
+      if (!AIService.checkApiKey(provider, config)) {
+        showToast(`${label}: API anahtarı girilmemiş. Anahtar olmadan raporlar yerleşik motorla üretilir.`, "warning", 7000);
+        return;
+      }
+      showToast(`${label} test ediliyor...`, "info");
       try {
-        const res = await AIService.analyzeExams(state.students[0], state.exams.slice(0, 1), state.aiConfig);
-        if (res) showToast("✓ AI bağlantısı ve API doğrulaması başarılı!", "success");
+        await AIService.callProvider(provider, 'Bağlantı testi. Yalnızca şu JSON nesnesini döndür: {"ok": true}', config);
+        showToast(`✓ ${label} bağlantısı başarılı!`, "success");
       } catch (err) {
-        showToast("Hata: " + err.message, "error");
+        showToast(`${label} bağlantı hatası: ${String(err.message || err).slice(0, 300)}`, "error", 15000);
       }
     }
 
